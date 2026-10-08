@@ -10,7 +10,9 @@ A fast, lightweight, open-source Git GUI for Linux, Windows and macOS.
 
 GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's power: history, branches, stash and (soon) rebase and conflict resolution, without hiding what Git is doing.
 
-> **Status:** early development (v0.1). Expect rough edges.
+> **Status:** early development. Expect rough edges. [Download the latest release](https://github.com/qiral/gitgud/releases/latest).
+
+![History with the commit graph](docs/screenshots/history.png)
 
 ## Features
 
@@ -27,6 +29,16 @@ GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's
 - Sign in with GitHub (device flow, token kept in the OS keychain) to push over HTTPS
 - Publish a local repository to GitHub in one step
 - Light and dark themes that follow your system
+
+## Screenshots
+
+**Stage exactly the lines you want.** Click line numbers in the diff (Shift+click for a range), or stage a whole hunk from its header.
+
+![Staging individual lines](docs/screenshots/changes.png)
+
+**Stash work in progress** and preview it before bringing it back. Light and dark themes follow your system.
+
+![Stashes in the light theme](docs/screenshots/stashes-light.png)
 
 ## Tech stack
 
