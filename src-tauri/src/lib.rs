@@ -1,0 +1,190 @@
+mod git;
+mod github;
+
+use git::{Branch, Commit, GitError, RepoInfo, Result, Status};
+use github::{Account, CreatedRepo, DeviceCode, PollResult, RemoteRepo};
+use std::path::Path;
+use tauri::Emitter;
+
+// Commands are marked `async` so git runs on a worker thread instead of
+// blocking the UI thread.
+
+/// Repository passed on the command line, e.g. `gitgud ~/code/project`.
+#[tauri::command]
+fn initial_repo() -> Option<String> {
+    std::env::args().nth(1)
+}
+
+#[tauri::command(async)]
+fn open_repo(path: String) -> Result<RepoInfo> {
+    git::open(Path::new(&path))
+}
+
+#[tauri::command(async)]
+fn status(repo: String) -> Result<Status> {
+    git::status(Path::new(&repo))
+}
+
+#[tauri::command(async)]
+fn stage(repo: String, paths: Vec<String>) -> Result<()> {
+    git::stage(Path::new(&repo), &paths)
+}
+
+#[tauri::command(async)]
+fn unstage(repo: String, paths: Vec<String>) -> Result<()> {
+    git::unstage(Path::new(&repo), &paths)
+}
+
+#[tauri::command(async)]
+fn discard(repo: String, paths: Vec<String>) -> Result<()> {
+    git::discard(Path::new(&repo), &paths)
+}
+
+#[tauri::command(async)]
+fn commit(repo: String, message: String) -> Result<()> {
+    git::commit(Path::new(&repo), &message)
+}
+
+#[tauri::command(async)]
+fn diff(repo: String, path: String, staged: bool, untracked: bool) -> Result<String> {
+    git::diff(Path::new(&repo), &path, staged, untracked)
+}
+
+#[tauri::command(async)]
+fn branches(repo: String) -> Result<Vec<Branch>> {
+    git::branches(Path::new(&repo))
+}
+
+#[tauri::command(async)]
+fn switch_branch(repo: String, name: String) -> Result<()> {
+    git::switch_branch(Path::new(&repo), &name)
+}
+
+#[tauri::command(async)]
+fn create_branch(repo: String, name: String) -> Result<()> {
+    git::create_branch(Path::new(&repo), &name)
+}
+
+#[tauri::command(async)]
+fn log(repo: String, limit: u32) -> Result<Vec<Commit>> {
+    git::log(Path::new(&repo), limit)
+}
+
+#[tauri::command(async)]
+fn show_commit(repo: String, hash: String) -> Result<String> {
+    git::show_commit(Path::new(&repo), &hash)
+}
+
+#[tauri::command(async)]
+fn fetch(repo: String) -> Result<()> {
+    git::fetch(Path::new(&repo), &github::git_env())
+}
+
+#[tauri::command(async)]
+fn pull(repo: String) -> Result<()> {
+    git::pull(Path::new(&repo), &github::git_env())
+}
+
+#[tauri::command(async)]
+fn push(repo: String) -> Result<()> {
+    git::push(Path::new(&repo), &github::git_env())
+}
+
+#[tauri::command(async)]
+fn origin_url(repo: String) -> Result<Option<String>> {
+    git::origin_url(Path::new(&repo))
+}
+
+#[tauri::command(async)]
+fn github_account() -> Result<Option<Account>> {
+    github::account()
+}
+
+#[tauri::command(async)]
+fn github_start_sign_in() -> Result<DeviceCode> {
+    github::start_sign_in()
+}
+
+#[tauri::command(async)]
+fn github_poll_sign_in(device_code: String, interval: u64) -> Result<PollResult> {
+    github::poll_sign_in(&device_code, interval)
+}
+
+#[tauri::command(async)]
+fn github_sign_out() -> Result<()> {
+    github::sign_out()
+}
+
+/// Creates a GitHub repository, adds it as `origin` and pushes the current branch.
+#[tauri::command(async)]
+fn publish_to_github(
+    repo: String,
+    name: String,
+    description: String,
+    private: bool,
+) -> Result<CreatedRepo> {
+    let path = Path::new(&repo);
+    if git::origin_url(path)?.is_some() {
+        return Err(GitError::Failed(
+            "This repository already has an 'origin' remote".into(),
+        ));
+    }
+    let created = github::create_repo(&name, &description, private)?;
+    git::add_origin(path, &created.clone_url)?;
+    git::push(path, &github::git_env())?;
+    Ok(created)
+}
+
+#[tauri::command(async)]
+fn github_repos() -> Result<Vec<RemoteRepo>> {
+    github::list_repos()
+}
+
+/// Clones into `parent/name`, emitting `clone-progress` events while it runs.
+#[tauri::command(async)]
+fn clone_repo(
+    app: tauri::AppHandle,
+    url: String,
+    parent: String,
+    name: String,
+) -> Result<RepoInfo> {
+    let dest = git::clone(&url, Path::new(&parent), &name, &github::git_env(), |p| {
+        let _ = app.emit("clone-progress", p);
+    })?;
+    git::open(&dest)
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            initial_repo,
+            open_repo,
+            status,
+            stage,
+            unstage,
+            discard,
+            commit,
+            diff,
+            branches,
+            switch_branch,
+            create_branch,
+            log,
+            show_commit,
+            fetch,
+            pull,
+            push,
+            origin_url,
+            github_account,
+            github_start_sign_in,
+            github_poll_sign_in,
+            github_sign_out,
+            publish_to_github,
+            github_repos,
+            clone_repo,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
