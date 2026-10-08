@@ -6,7 +6,7 @@ _git gud at git._
 
 A fast, lightweight, open-source Git GUI for Linux, Windows and macOS.
 
-GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's power: history, branches and (soon) rebase, stash and conflict resolution, without hiding what Git is doing.
+GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's power: history, branches, stash and (soon) rebase and conflict resolution, without hiding what Git is doing.
 
 > **Status:** early development (v0.1). Expect rough edges.
 
@@ -17,6 +17,7 @@ GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's
 - See changed files, stage and unstage per file or all at once, and discard changes
 - Inline diff viewer with line numbers
 - Commit (`Ctrl+Enter` in the message box)
+- Stash changes (optionally with untracked files), then apply, pop, preview or delete stashes
 - Create and switch branches
 - Browse history and see each commit's changes
 - Fetch, pull (fast-forward only) and push, including publishing new branches
@@ -76,7 +77,6 @@ src-tauri/
 ## Roadmap
 
 - [ ] Stage individual lines and hunks
-- [ ] Stash management
 - [ ] Merge and conflict resolution
 - [ ] Commit graph
 - [ ] Interactive rebase with drag and drop

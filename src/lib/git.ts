@@ -38,6 +38,13 @@ export interface Commit {
   subject: string
 }
 
+export interface Stash {
+  index: number
+  message: string
+  branch: string | null
+  time: number
+}
+
 export interface Account {
   login: string
   name: string | null
@@ -122,6 +129,17 @@ export const git = {
   log: (repo: string, limit = 200) => invoke<Commit[]>('log', { repo, limit }),
   showCommit: (repo: string, hash: string) =>
     invoke<string>('show_commit', { repo, hash }),
+  stashes: (repo: string) => invoke<Stash[]>('stashes', { repo }),
+  stashPush: (repo: string, message: string, includeUntracked: boolean) =>
+    invoke<void>('stash_push', { repo, message, includeUntracked }),
+  stashApply: (repo: string, index: number) =>
+    invoke<void>('stash_apply', { repo, index }),
+  stashPop: (repo: string, index: number) =>
+    invoke<void>('stash_pop', { repo, index }),
+  stashDrop: (repo: string, index: number) =>
+    invoke<void>('stash_drop', { repo, index }),
+  stashShow: (repo: string, index: number) =>
+    invoke<string>('stash_show', { repo, index }),
   fetch: (repo: string) => invoke<void>('fetch', { repo }),
   pull: (repo: string) => invoke<void>('pull', { repo }),
   push: (repo: string) => invoke<void>('push', { repo }),
