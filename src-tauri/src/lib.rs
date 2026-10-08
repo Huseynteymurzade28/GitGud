@@ -1,5 +1,6 @@
 mod git;
 mod github;
+mod graph;
 
 use git::{Branch, Commit, GitError, RepoInfo, Result, Stash, Status};
 use github::{Account, CreatedRepo, DeviceCode, PollResult, RemoteRepo};

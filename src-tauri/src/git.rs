@@ -5,6 +5,8 @@
 //! can never be interpreted as commands.
 
 use serde::Serialize;
+
+use crate::graph::{self, GraphRow};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -351,6 +353,58 @@ pub struct Commit {
     /// Unix timestamp in seconds.
     pub time: i64,
     pub subject: String,
+    pub parents: Vec<String>,
+    pub refs: Vec<RefLabel>,
+    pub graph: GraphRow,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum RefKind {
+    /// The checked-out branch (or "HEAD" when detached).
+    Head,
+    Branch,
+    Remote,
+    Tag,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct RefLabel {
+    pub name: String,
+    pub kind: RefKind,
+}
+
+/// Parses `%D` output from `git log --decorate=full`, e.g.
+/// `HEAD -> refs/heads/main, tag: refs/tags/v1, refs/remotes/origin/main`.
+fn parse_refs(raw: &str) -> Vec<RefLabel> {
+    raw.split(", ")
+        .filter(|r| !r.is_empty())
+        .filter_map(|r| {
+            let label = |name: &str, kind| {
+                Some(RefLabel {
+                    name: name.into(),
+                    kind,
+                })
+            };
+            if let Some(branch) = r.strip_prefix("HEAD -> refs/heads/") {
+                label(branch, RefKind::Head)
+            } else if r == "HEAD" {
+                label("HEAD", RefKind::Head)
+            } else if let Some(tag) = r.strip_prefix("tag: refs/tags/") {
+                label(tag, RefKind::Tag)
+            } else if let Some(branch) = r.strip_prefix("refs/heads/") {
+                label(branch, RefKind::Branch)
+            } else if let Some(remote) = r.strip_prefix("refs/remotes/") {
+                // "origin/HEAD" just points at the default branch; skip the noise.
+                (!remote.ends_with("/HEAD")).then(|| RefLabel {
+                    name: remote.into(),
+                    kind: RefKind::Remote,
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 pub fn log(repo: &Path, limit: u32) -> Result<Vec<Commit>> {
@@ -362,8 +416,15 @@ pub fn log(repo: &Path, limit: u32) -> Result<Vec<Commit>> {
         repo,
         &[
             "log",
+            "--date-order",
+            "--decorate=full",
             &limit,
-            "--format=%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%s%x1e",
+            "--format=%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%P%x1f%D%x1f%s%x1e",
+            // Every branch, remote branch and tag, so the graph shows how they relate.
+            "--branches",
+            "--remotes",
+            "--tags",
+            "HEAD",
         ],
     )?;
     Ok(parse_log(&raw))
@@ -381,7 +442,8 @@ pub fn show_commit(repo: &Path, hash: &str) -> Result<String> {
 }
 
 fn parse_log(raw: &str) -> Vec<Commit> {
-    raw.split('\x1e')
+    let mut commits: Vec<Commit> = raw
+        .split('\x1e')
         .filter_map(|record| {
             let mut f = record.trim_start_matches('\n').split('\x1f');
             Some(Commit {
@@ -390,10 +452,22 @@ fn parse_log(raw: &str) -> Vec<Commit> {
                 author: f.next()?.into(),
                 email: f.next()?.into(),
                 time: f.next()?.parse().ok()?,
+                parents: f.next()?.split_whitespace().map(String::from).collect(),
+                refs: parse_refs(f.next()?),
                 subject: f.next()?.into(),
+                graph: GraphRow::default(),
             })
         })
-        .collect()
+        .collect();
+
+    let graph_input: Vec<(String, Vec<String>)> = commits
+        .iter()
+        .map(|c| (c.hash.clone(), c.parents.clone()))
+        .collect();
+    for (commit, row) in commits.iter_mut().zip(graph::layout(&graph_input)) {
+        commit.graph = row;
+    }
+    commits
 }
 
 // ---------------------------------------------------------------------------
@@ -938,10 +1012,42 @@ mod tests {
 
     #[test]
     fn parses_log() {
-        let raw = "h1\x1fs1\x1fAda\x1fa@x\x1f100\x1ffirst\x1e\nh2\x1fs2\x1fBo\x1fb@x\x1f200\x1fsecond | pipes\x1e\n";
+        let raw =
+            "h2\x1fs2\x1fBo\x1fb@x\x1f200\x1fh1\x1fHEAD -> refs/heads/main\x1fsecond | pipes\x1e\n\
+                   h1\x1fs1\x1fAda\x1fa@x\x1f100\x1f\x1f\x1ffirst\x1e\n";
         let c = parse_log(raw);
         assert_eq!(c.len(), 2);
-        assert_eq!(c[1].subject, "second | pipes");
-        assert_eq!(c[1].time, 200);
+        assert_eq!(c[0].subject, "second | pipes");
+        assert_eq!(c[0].time, 200);
+        assert_eq!(c[0].parents, vec!["h1".to_string()]);
+        assert_eq!(
+            c[0].refs[0],
+            RefLabel {
+                name: "main".into(),
+                kind: RefKind::Head
+            }
+        );
+        assert!(c[1].parents.is_empty() && c[1].refs.is_empty());
+        assert_eq!((c[0].graph.lane, c[1].graph.lane), (0, 0));
+    }
+
+    #[test]
+    fn parses_refs() {
+        let r = parse_refs(
+            "HEAD -> refs/heads/main, tag: refs/tags/v0.1.0, refs/remotes/origin/main, \
+             refs/remotes/origin/HEAD, refs/heads/feature/x",
+        );
+        let names: Vec<_> = r.iter().map(|r| (r.name.as_str(), &r.kind)).collect();
+        assert_eq!(
+            names,
+            vec![
+                ("main", &RefKind::Head),
+                ("v0.1.0", &RefKind::Tag),
+                ("origin/main", &RefKind::Remote),
+                ("feature/x", &RefKind::Branch),
+            ]
+        );
+        assert_eq!(parse_refs("HEAD")[0].kind, RefKind::Head);
+        assert!(parse_refs("").is_empty());
     }
 }

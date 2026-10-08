@@ -21,7 +21,7 @@ GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's
 - Commit (`Ctrl+Enter` in the message box)
 - Stash changes (optionally with untracked files), then apply, pop, preview or delete stashes
 - Create and switch branches
-- Browse history and see each commit's changes
+- History with a commit graph across all branches, remote branches and tags, plus each commit's changes
 - Fetch, pull (fast-forward only) and push, including publishing new branches
 - Sign in with GitHub (device flow, token kept in the OS keychain) to push over HTTPS
 - Publish a local repository to GitHub in one step
@@ -80,7 +80,6 @@ src-tauri/
 
 - [ ] Stage individual lines and hunks
 - [ ] Merge and conflict resolution
-- [ ] Commit graph
 - [ ] Interactive rebase with drag and drop
 - [ ] Multiple open repositories
 - [ ] GitHub / GitLab integration

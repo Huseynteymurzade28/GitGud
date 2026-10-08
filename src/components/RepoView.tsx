@@ -203,7 +203,12 @@ export default function RepoView({
       )}
 
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-80 shrink-0 flex-col border-r border-line bg-panel">
+        <aside
+          className={`flex shrink-0 flex-col border-r border-line bg-panel ${
+            // The graph and branch labels need more room than file lists.
+            tab === 'history' ? 'w-[28rem]' : 'w-80'
+          }`}
+        >
           <div className="flex border-b border-line">
             {(['changes', 'history', 'stashes'] as const).map((t) => (
               <button

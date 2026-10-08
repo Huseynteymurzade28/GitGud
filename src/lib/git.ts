@@ -29,6 +29,20 @@ export interface Branch {
   upstream: string | null
 }
 
+export interface RefLabel {
+  name: string
+  kind: 'head' | 'branch' | 'remote' | 'tag'
+}
+
+/** One row of the history graph; see src-tauri/src/graph.rs. */
+export interface GraphRow {
+  lane: number
+  color: number
+  width: number
+  /** y is 0 (row top), 1 (commit dot) or 2 (row bottom); x is a lane index. */
+  segments: { x1: number; y1: number; x2: number; y2: number; color: number }[]
+}
+
 export interface Commit {
   hash: string
   shortHash: string
@@ -36,6 +50,9 @@ export interface Commit {
   email: string
   time: number
   subject: string
+  parents: string[]
+  refs: RefLabel[]
+  graph: GraphRow
 }
 
 export interface Stash {
