@@ -1,132 +1,89 @@
-# Git GUI Tool
+# GitGud
 
-A user-friendly graphical interface for managing Git repositories. This tool simplifies essential Git operations like pushing, branching, pulling, and cloning for developers and non-technical users alike.
+A fast, lightweight, open-source Git GUI for Linux, Windows and macOS.
+
+GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's power: history, branches and (soon) rebase, stash and conflict resolution, without hiding what Git is doing.
+
+> **Status:** early development (v0.1). Expect rough edges.
 
 ## Features
 
-- 🖇️ **Clone Repository:** Easily clone remote repositories to your local machine.
-- 🚀 **Push Changes:** Push your commits to the remote repository with a single click.
-- 🔄 **Pull Updates:** Keep your local repository in sync by pulling updates from the remote repository.
-- 🌿 **Branch Management:** Create, switch, and delete branches effortlessly.
-- 🔀 **Merge Branches:** Seamlessly merge branches with visual conflict resolution.
-- ✍️ **Commit Changes:** Stage and commit changes with a user-friendly interface.
-- 📜 **History Viewer:** View commit history and diffs with an intuitive timeline.
-- 📦 **Stash Management:** Save and restore your work-in-progress.
-- ⚙️ **Conflict Resolution:** Visual tools to resolve merge conflicts.
-- 🌑 **Dark mode:** dark and light mode options.
+- Open any local repository (or pass it on the command line: `gitgud ~/code/project`)
+- See changed files, stage and unstage per file or all at once, and discard changes
+- Inline diff viewer with line numbers
+- Commit (`Ctrl+Enter` in the message box)
+- Create and switch branches
+- Browse history and see each commit's changes
+- Fetch, pull (fast-forward only) and push, including publishing new branches
+- Light and dark themes that follow your system
 
----
+## Tech stack
 
-## Tech Stack
+- **[Tauri 2](https://tauri.app)** — native shell, small binaries
+- **Rust** backend (`src-tauri/`) that drives the `git` CLI without a shell, so file names and commit messages can never be run as commands
+- **React + TypeScript + Tailwind CSS** frontend (`src/`), built with Vite
 
-### Programming Languages:
+## Development
 
-- 🟨 **JavaScript**: For frontend development, ensuring a responsive and interactive UI.
-- 🐍 **Python**: For backend scripting and managing Git commands.
+Prerequisites:
 
-### Frameworks & Libraries:
+- [Rust](https://www.rust-lang.org/tools/install) (stable)
+- [Node.js](https://nodejs.org) 20+
+- `git` on your `PATH`
+- Tauri's system dependencies for your OS: see [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/)
 
-- 💻 **Electron**: For building cross-platform desktop applications.
-- ⚛️ **React**: For crafting a dynamic and reusable UI.
-- 🟢 **Node.js**: To run the backend server and manage dependencies.
+```bash
+git clone https://github.com/Huseynteymurzade28/GitGud.git
+cd GitGud
+npm install
+npm run tauri dev
+```
 
-### Tools:
+To open a specific repository during development:
 
-- 🗂️ **Git**: Core version control functionality.
-- 🛠️ **Webpack**: For bundling and optimizing assets.
+```bash
+npm run tauri dev -- -- /path/to/repo
+```
 
----
+Other commands:
 
-## Installation
+| Command                                           | What it does                       |
+| ------------------------------------------------- | ---------------------------------- |
+| `npm run tauri build`                             | Build a release bundle for your OS |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | Run the Rust tests                 |
+| `npm run build`                                   | Type-check and build the frontend  |
+| `npm run format`                                  | Format the frontend with Prettier  |
 
-1. 📥 Clone the repository:
+## Project layout
 
-   ```bash
-   git clone https://github.com/username/GitGud.git
-   ```
+```
+src/                  React frontend
+  lib/git.ts          Typed wrappers for the Rust commands
+  components/         UI components
+src-tauri/
+  src/git.rs          Git operations (runs the git CLI, parses its output)
+  src/lib.rs          Tauri commands exposed to the frontend
+```
 
-2. 📂 Navigate to the project directory:
+## Roadmap
 
-   ```bash
-   cd GitGud
-   ```
+- [ ] Clone repositories
+- [ ] Stage individual lines and hunks
+- [ ] Stash management
+- [ ] Merge and conflict resolution
+- [ ] Commit graph
+- [ ] Interactive rebase with drag and drop
+- [ ] Multiple open repositories
+- [ ] GitHub / GitLab integration
 
-3. 📦 Install dependencies:
+## Contributing
 
-   ```bash
-   npm install
-   ```
+Contributions are welcome. Open an issue to discuss larger changes before starting on them.
 
-4. ▶️ Start the application:
-   ```bash
-   npm run dev
-   ```
-
-## Usage
-
-### Clone a Repository
-
-1. 🖱️ Click on the "Clone" button.
-2. 🔗 Enter the repository URL and target directory.
-3. 📥 Click "Clone" to download the repository.
-
-### Push Changes
-
-1. ✅ Stage your changes in the "Changes" tab.
-2. ✍️ Write a commit message and click "Commit".
-3. 🚀 Click "Push" to upload the changes to the remote repository.
-
-### Create a Branch
-
-1. 🌿 Navigate to the "Branches" tab.
-2. ➕ Click "New Branch".
-3. 📝 Enter a name for the branch and click "Create".
-
-### Pull Updates
-
-1. 🔄 Navigate to the "Sync" tab.
-2. 📥 Click "Pull" to fetch and merge changes from the remote repository.
-
-### Merge Branches
-
-1. 🔀 Navigate to the "Branches" tab.
-2. 🎯 Select the branch to merge into and click "Merge".
-3. ⚙️ Resolve any conflicts using the conflict resolution tool.
-
----
-
-## Contribution Guidelines
-
-1. 🍴 Fork the repository.
-2. 🌿 Create a new branch for your feature or bugfix:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-3. 💾 Commit your changes with a descriptive message:
-   ```bash
-   git commit -m "Add feature: your-feature-name"
-   ```
-4. 🚀 Push your branch and create a pull request:
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-
----
+1. Fork the repository and create a branch: `git switch -c feature/my-feature`
+2. Make your change; run `cargo test` and `npm run build`
+3. Open a pull request
 
 ## License
 
-📝 This project is licensed under the MIT License. See the LICENSE file for details.
-
----
-
-## Contact
-
-📧 open an issue in this repository.
-
----
-
-### Future Enhancements
-
-- 🔗 Support for GitHub, GitLab, and Bitbucket integrations.
-- 📊 More advanced visualization for branch histories and logs.
-- 📱 Native mobile app compatibility.
+[MIT](LICENSE)

@@ -1,17 +1,72 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+:root {
+  --app-bg: #ffffff;
+  --app-panel: #f6f7f9;
+  --app-hover: #eceef2;
+  --app-line: #dfe2e7;
+  --app-fg: #1d2129;
+  --app-muted: #6b7280;
+  --app-accent: #4f6ef7;
+  --app-added: #1a7f37;
+  --app-added-bg: #e6f6ea;
+  --app-removed: #cf222e;
+  --app-removed-bg: #fdebec;
+  --app-modified: #9a6700;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --app-bg: #16181d;
+    --app-panel: #1d2026;
+    --app-hover: #272b33;
+    --app-line: #2e323b;
+    --app-fg: #e6e8eb;
+    --app-muted: #8b919c;
+    --app-accent: #7b93ff;
+    --app-added: #4ac26b;
+    --app-added-bg: #12261a;
+    --app-removed: #f47067;
+    --app-removed-bg: #2d1517;
+    --app-modified: #d4a72c;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--app-bg);
+  --color-panel: var(--app-panel);
+  --color-hover: var(--app-hover);
+  --color-line: var(--app-line);
+  --color-fg: var(--app-fg);
+  --color-muted: var(--app-muted);
+  --color-accent: var(--app-accent);
+  --color-added: var(--app-added);
+  --color-added-bg: var(--app-added-bg);
+  --color-removed: var(--app-removed);
+  --color-removed-bg: var(--app-removed-bg);
+  --color-modified: var(--app-modified);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
 
 body {
   margin: 0;
+  background: var(--app-bg);
+  color: var(--app-fg);
   font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu',
-    'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  font-size: 13px;
+  user-select: none;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-code {
-  font-family:
-    source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
