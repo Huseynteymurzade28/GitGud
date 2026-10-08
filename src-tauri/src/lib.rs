@@ -1,6 +1,8 @@
 mod git;
+mod github;
 
-use git::{Branch, Commit, RepoInfo, Result, Status};
+use git::{Branch, Commit, GitError, RepoInfo, Result, Status};
+use github::{Account, CreatedRepo, DeviceCode, PollResult};
 use std::path::Path;
 
 // Commands are marked `async` so git runs on a worker thread instead of
@@ -74,17 +76,62 @@ fn show_commit(repo: String, hash: String) -> Result<String> {
 
 #[tauri::command(async)]
 fn fetch(repo: String) -> Result<()> {
-    git::fetch(Path::new(&repo))
+    git::fetch(Path::new(&repo), &github::git_env())
 }
 
 #[tauri::command(async)]
 fn pull(repo: String) -> Result<()> {
-    git::pull(Path::new(&repo))
+    git::pull(Path::new(&repo), &github::git_env())
 }
 
 #[tauri::command(async)]
 fn push(repo: String) -> Result<()> {
-    git::push(Path::new(&repo))
+    git::push(Path::new(&repo), &github::git_env())
+}
+
+#[tauri::command(async)]
+fn origin_url(repo: String) -> Result<Option<String>> {
+    git::origin_url(Path::new(&repo))
+}
+
+#[tauri::command(async)]
+fn github_account() -> Result<Option<Account>> {
+    github::account()
+}
+
+#[tauri::command(async)]
+fn github_start_sign_in() -> Result<DeviceCode> {
+    github::start_sign_in()
+}
+
+#[tauri::command(async)]
+fn github_poll_sign_in(device_code: String, interval: u64) -> Result<PollResult> {
+    github::poll_sign_in(&device_code, interval)
+}
+
+#[tauri::command(async)]
+fn github_sign_out() -> Result<()> {
+    github::sign_out()
+}
+
+/// Creates a GitHub repository, adds it as `origin` and pushes the current branch.
+#[tauri::command(async)]
+fn publish_to_github(
+    repo: String,
+    name: String,
+    description: String,
+    private: bool,
+) -> Result<CreatedRepo> {
+    let path = Path::new(&repo);
+    if git::origin_url(path)?.is_some() {
+        return Err(GitError::Failed(
+            "This repository already has an 'origin' remote".into(),
+        ));
+    }
+    let created = github::create_repo(&name, &description, private)?;
+    git::add_origin(path, &created.clone_url)?;
+    git::push(path, &github::git_env())?;
+    Ok(created)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -109,6 +156,12 @@ pub fn run() {
             fetch,
             pull,
             push,
+            origin_url,
+            github_account,
+            github_start_sign_in,
+            github_poll_sign_in,
+            github_sign_out,
+            publish_to_github,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

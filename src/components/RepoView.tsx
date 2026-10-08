@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   errorMessage,
   git,
+  github,
   isStaged,
   isUnstaged,
+  type Account,
   type Branch,
   type Commit,
   type FileChange,
@@ -14,6 +16,8 @@ import Toolbar from './Toolbar'
 import ChangesPanel from './ChangesPanel'
 import HistoryPanel from './HistoryPanel'
 import DiffView from './DiffView'
+import SignInDialog from './SignInDialog'
+import PublishDialog from './PublishDialog'
 
 type Tab = 'changes' | 'history'
 
@@ -24,14 +28,23 @@ export type Selection =
 
 interface Props {
   repo: RepoInfo
+  account: Account | null
+  onAccountChange: (account: Account | null) => void
   onOpenOther: () => void
 }
 
-export default function RepoView({ repo, onOpenOther }: Props) {
+export default function RepoView({
+  repo,
+  account,
+  onAccountChange,
+  onOpenOther,
+}: Props) {
   const [tab, setTab] = useState<Tab>('changes')
   const [status, setStatus] = useState<Status | null>(null)
   const [branches, setBranches] = useState<Branch[]>([])
   const [commits, setCommits] = useState<Commit[]>([])
+  const [originUrl, setOriginUrl] = useState<string | null>(null)
+  const [dialog, setDialog] = useState<'signIn' | 'publish' | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [diff, setDiff] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -39,14 +52,16 @@ export default function RepoView({ repo, onOpenOther }: Props) {
 
   const refresh = useCallback(async () => {
     try {
-      const [s, b, c] = await Promise.all([
+      const [s, b, c, o] = await Promise.all([
         git.status(repo.path),
         git.branches(repo.path),
         git.log(repo.path),
+        git.originUrl(repo.path),
       ])
       setStatus(s)
       setBranches(b)
       setCommits(c)
+      setOriginUrl(o)
     } catch (e) {
       setError(errorMessage(e))
     }
@@ -114,10 +129,40 @@ export default function RepoView({ repo, onOpenOther }: Props) {
         repo={repo}
         status={status}
         branches={branches}
+        originUrl={originUrl}
+        account={account}
         busy={busy}
         onOpenOther={onOpenOther}
+        onSignIn={() => setDialog('signIn')}
+        onSignOut={() =>
+          act('signOut', async () => {
+            await github.signOut()
+            onAccountChange(null)
+          })
+        }
+        onPublish={() => setDialog(account ? 'publish' : 'signIn')}
         act={act}
       />
+
+      {dialog === 'signIn' && (
+        <SignInDialog
+          onClose={() => setDialog(null)}
+          onSignedIn={(a) => {
+            onAccountChange(a)
+            setDialog(null)
+          }}
+        />
+      )}
+      {dialog === 'publish' && (
+        <PublishDialog
+          repo={repo}
+          onClose={() => setDialog(null)}
+          onPublished={() => {
+            setDialog(null)
+            refresh()
+          }}
+        />
+      )}
 
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 shrink-0 flex-col border-r border-line bg-panel">

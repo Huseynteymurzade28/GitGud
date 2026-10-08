@@ -7,17 +7,30 @@ import {
   FolderGit2,
   GitBranch,
   Loader2,
+  LogOut,
   Plus,
   RefreshCw,
 } from 'lucide-react'
-import { git, type Branch, type RepoInfo, type Status } from '../lib/git'
+import GithubIcon from './GithubIcon'
+import {
+  git,
+  type Account,
+  type Branch,
+  type RepoInfo,
+  type Status,
+} from '../lib/git'
 
 interface Props {
   repo: RepoInfo
   status: Status | null
   branches: Branch[]
+  originUrl: string | null
+  account: Account | null
   busy: string | null
   onOpenOther: () => void
+  onSignIn: () => void
+  onSignOut: () => void
+  onPublish: () => void
   act: (label: string, action: () => Promise<unknown>) => Promise<boolean>
 }
 
@@ -25,13 +38,20 @@ export default function Toolbar({
   repo,
   status,
   branches,
+  originUrl,
+  account,
   busy,
   onOpenOther,
+  onSignIn,
+  onSignOut,
+  onPublish,
   act,
 }: Props) {
   const ahead = status?.ahead ?? 0
   const behind = status?.behind ?? 0
   const hasUpstream = Boolean(status?.upstream)
+  // Without any remote, "push" means creating the repository on GitHub first.
+  const needsRemote = !hasUpstream && originUrl === null
 
   return (
     <header className="flex h-12 shrink-0 items-stretch border-b border-line">
@@ -60,18 +80,33 @@ export default function Toolbar({
         value={behind > 0 ? `${behind} behind` : 'Up to date'}
         icon={<Spin active={busy === 'pull'} icon={ArrowDown} />}
       />
-      <ToolbarButton
-        onClick={() => act('push', () => git.push(repo.path))}
-        disabled={busy !== null || !status?.branch}
-        label={hasUpstream ? 'Push' : 'Publish'}
-        value={
-          hasUpstream
-            ? ahead > 0
-              ? `${ahead} ahead`
-              : 'Up to date'
-            : 'No upstream'
-        }
-        icon={<Spin active={busy === 'push'} icon={ArrowUp} />}
+      {needsRemote ? (
+        <ToolbarButton
+          onClick={onPublish}
+          disabled={busy !== null || !status?.branch}
+          label="Publish"
+          value="to GitHub"
+          icon={<GithubIcon className="size-4" />}
+        />
+      ) : (
+        <ToolbarButton
+          onClick={() => act('push', () => git.push(repo.path))}
+          disabled={busy !== null || !status?.branch}
+          label={hasUpstream ? 'Push' : 'Publish branch'}
+          value={
+            hasUpstream
+              ? ahead > 0
+                ? `${ahead} ahead`
+                : 'Up to date'
+              : 'origin'
+          }
+          icon={<Spin active={busy === 'push'} icon={ArrowUp} />}
+        />
+      )}
+      <AccountMenu
+        account={account}
+        onSignIn={onSignIn}
+        onSignOut={onSignOut}
       />
     </header>
   )
@@ -127,6 +162,78 @@ function ToolbarButton({
   )
 }
 
+function AccountMenu({
+  account,
+  onSignIn,
+  onSignOut,
+}: Pick<Props, 'account' | 'onSignIn' | 'onSignOut'>) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, open, () => setOpen(false))
+
+  if (!account)
+    return (
+      <button
+        onClick={onSignIn}
+        className="flex items-center gap-2 px-4 hover:bg-hover"
+      >
+        <GithubIcon className="size-4" />
+        Sign in
+      </button>
+    )
+
+  return (
+    <div ref={ref} className="relative flex">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title={account.login}
+        className="flex items-center px-3 hover:bg-hover"
+      >
+        <img
+          src={account.avatarUrl}
+          alt=""
+          className="size-7 rounded-full border border-line"
+        />
+      </button>
+      {open && (
+        <div className="absolute top-full right-1 z-10 mt-1 w-56 overflow-hidden rounded-md border border-line bg-panel shadow-lg">
+          <div className="border-b border-line px-3 py-2">
+            <div className="truncate font-medium">
+              {account.name ?? account.login}
+            </div>
+            <div className="truncate text-xs text-muted">@{account.login}</div>
+          </div>
+          <button
+            onClick={() => {
+              setOpen(false)
+              onSignOut()
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-hover"
+          >
+            <LogOut className="size-4" />
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function useClickOutside(
+  ref: React.RefObject<HTMLElement | null>,
+  active: boolean,
+  onOutside: () => void,
+) {
+  useEffect(() => {
+    if (!active) return
+    const handler = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onOutside()
+    }
+    window.addEventListener('mousedown', handler)
+    return () => window.removeEventListener('mousedown', handler)
+  }, [ref, active, onOutside])
+}
+
 function BranchMenu({
   repo,
   status,
@@ -136,15 +243,7 @@ function BranchMenu({
   const [open, setOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
-    }
-    window.addEventListener('mousedown', close)
-    return () => window.removeEventListener('mousedown', close)
-  }, [open])
+  useClickOutside(ref, open, () => setOpen(false))
 
   async function switchTo(name: string) {
     setOpen(false)

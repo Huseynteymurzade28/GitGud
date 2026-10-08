@@ -54,7 +54,12 @@ fn output(repo: &Path, args: &[&str]) -> Result<Output> {
 
 /// Runs git and returns stdout, or stderr as the error when git exits non-zero.
 fn run(repo: &Path, args: &[&str]) -> Result<String> {
-    let out = output(repo, args)?;
+    run_with_env(repo, args, &[])
+}
+
+/// Like [`run`], with extra environment variables (used for credentials).
+fn run_with_env(repo: &Path, args: &[&str], env: &[(String, String)]) -> Result<String> {
+    let out = command(repo, args).envs(env.iter().cloned()).output()?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
@@ -376,25 +381,40 @@ fn parse_log(raw: &str) -> Vec<Commit> {
 // ---------------------------------------------------------------------------
 // Remotes
 
-pub fn fetch(repo: &Path) -> Result<()> {
-    run(repo, &["fetch", "--all", "--prune"]).map(drop)
+// `env` carries credentials for hosts the user signed in to (see `github::git_env`).
+
+pub fn fetch(repo: &Path, env: &[(String, String)]) -> Result<()> {
+    run_with_env(repo, &["fetch", "--all", "--prune"], env).map(drop)
 }
 
-pub fn pull(repo: &Path) -> Result<()> {
-    run(repo, &["pull", "--ff-only"]).map(drop)
+pub fn pull(repo: &Path, env: &[(String, String)]) -> Result<()> {
+    run_with_env(repo, &["pull", "--ff-only"], env).map(drop)
 }
 
-pub fn push(repo: &Path) -> Result<()> {
+pub fn push(repo: &Path, env: &[(String, String)]) -> Result<()> {
     // Publish branches that don't have an upstream yet.
     let branch = run(repo, &["symbolic-ref", "--short", "HEAD"])?;
     let has_upstream = output(repo, &["rev-parse", "--abbrev-ref", "@{upstream}"])?
         .status
         .success();
     if has_upstream {
-        run(repo, &["push"]).map(drop)
+        run_with_env(repo, &["push"], env).map(drop)
     } else {
-        run(repo, &["push", "-u", "origin", branch.trim()]).map(drop)
+        run_with_env(repo, &["push", "-u", "origin", branch.trim()], env).map(drop)
     }
+}
+
+/// URL of the `origin` remote, if there is one.
+pub fn origin_url(repo: &Path) -> Result<Option<String>> {
+    let out = output(repo, &["remote", "get-url", "origin"])?;
+    Ok(out
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string()))
+}
+
+pub fn add_origin(repo: &Path, url: &str) -> Result<()> {
+    run(repo, &["remote", "add", "origin", url]).map(drop)
 }
 
 #[cfg(test)]
@@ -483,6 +503,13 @@ mod tests {
         assert!(b.iter().any(|b| b.name == "feature/x" && b.current));
         switch_branch(repo, "main").unwrap();
         assert_eq!(status(repo).unwrap().branch.as_deref(), Some("main"));
+
+        assert_eq!(origin_url(repo).unwrap(), None);
+        add_origin(repo, "https://github.com/example/repo.git").unwrap();
+        assert_eq!(
+            origin_url(repo).unwrap().as_deref(),
+            Some("https://github.com/example/repo.git")
+        );
 
         assert!(matches!(open(&std::env::temp_dir()), Err(GitError::NotARepo(_))));
         std::fs::remove_dir_all(&dir).unwrap();

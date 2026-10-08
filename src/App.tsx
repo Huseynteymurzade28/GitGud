@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { FolderOpen, GitBranch } from 'lucide-react'
-import { errorMessage, git, type RepoInfo } from './lib/git'
+import {
+  errorMessage,
+  git,
+  github,
+  type Account,
+  type RepoInfo,
+} from './lib/git'
 import RepoView from './components/RepoView'
 
 const LAST_REPO_KEY = 'gitgud.lastRepo'
@@ -24,6 +30,7 @@ function writeLastRepo(path: string) {
 
 export default function App() {
   const [repo, setRepo] = useState<RepoInfo | null>(null)
+  const [account, setAccount] = useState<Account | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -43,6 +50,14 @@ export default function App() {
     if (typeof path === 'string') await openPath(path)
   }
 
+  useEffect(() => {
+    // Without keychain access the user just appears signed out.
+    github
+      .account()
+      .then(setAccount)
+      .catch(() => {})
+  }, [])
+
   // Open the repo given on the command line, or else the last one used.
   useEffect(() => {
     git
@@ -57,7 +72,15 @@ export default function App() {
 
   if (loading) return null
 
-  if (repo) return <RepoView repo={repo} onOpenOther={pickRepo} />
+  if (repo)
+    return (
+      <RepoView
+        repo={repo}
+        account={account}
+        onAccountChange={setAccount}
+        onOpenOther={pickRepo}
+      />
+    )
 
   return (
     <main className="flex h-full flex-col items-center justify-center gap-6 p-8 text-center">

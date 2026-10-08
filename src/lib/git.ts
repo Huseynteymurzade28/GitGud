@@ -38,6 +38,51 @@ export interface Commit {
   subject: string
 }
 
+export interface Account {
+  login: string
+  name: string | null
+  avatarUrl: string
+}
+
+export interface DeviceCode {
+  deviceCode: string
+  userCode: string
+  verificationUri: string
+  expiresIn: number
+  interval: number
+}
+
+export type PollResult =
+  | { state: 'pending'; interval: number }
+  | { state: 'done'; account: Account }
+  | { state: 'failed'; message: string }
+
+export interface CreatedRepo {
+  fullName: string
+  cloneUrl: string
+  htmlUrl: string
+}
+
+export const github = {
+  account: () => invoke<Account | null>('github_account'),
+  startSignIn: () => invoke<DeviceCode>('github_start_sign_in'),
+  pollSignIn: (deviceCode: string, interval: number) =>
+    invoke<PollResult>('github_poll_sign_in', { deviceCode, interval }),
+  signOut: () => invoke<void>('github_sign_out'),
+  publish: (
+    repo: string,
+    name: string,
+    description: string,
+    isPrivate: boolean,
+  ) =>
+    invoke<CreatedRepo>('publish_to_github', {
+      repo,
+      name,
+      description,
+      private: isPrivate,
+    }),
+}
+
 export const git = {
   initialRepo: () => invoke<string | null>('initial_repo'),
   openRepo: (path: string) => invoke<RepoInfo>('open_repo', { path }),
@@ -63,6 +108,7 @@ export const git = {
   fetch: (repo: string) => invoke<void>('fetch', { repo }),
   pull: (repo: string) => invoke<void>('pull', { repo }),
   push: (repo: string) => invoke<void>('push', { repo }),
+  originUrl: (repo: string) => invoke<string | null>('origin_url', { repo }),
 }
 
 /** A change shown in the "Staged" list, i.e. something in the index. */
