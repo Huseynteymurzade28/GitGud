@@ -1,5 +1,7 @@
 # GitGud
 
+_git gud at git._
+
 A fast, lightweight, open-source Git GUI for Linux, Windows and macOS.
 
 GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's power: history, branches and (soon) rebase, stash and conflict resolution, without hiding what Git is doing.
