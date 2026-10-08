@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { confirm } from '@tauri-apps/plugin-dialog'
 import {
   ArrowDown,
   ArrowUp,
@@ -7,6 +8,7 @@ import {
   Download,
   FolderGit2,
   FolderOpen,
+  GitMerge,
   GitBranch,
   Loader2,
   LogOut,
@@ -289,6 +291,16 @@ function BranchMenu({
   const ref = useRef<HTMLDivElement>(null)
   useClickOutside(ref, open, () => setOpen(false))
 
+  async function mergeIn(name: string) {
+    const ok = await confirm(`Merge ${name} into ${status?.branch}?`, {
+      title: 'Merge branch',
+      kind: 'info',
+    })
+    if (!ok) return
+    setOpen(false)
+    await act('merge', () => git.merge(repo.path, name))
+  }
+
   async function switchTo(name: string) {
     setOpen(false)
     await act('switch', () => git.switchBranch(repo.path, name))
@@ -336,16 +348,26 @@ function BranchMenu({
           </form>
           <ul className="max-h-80 overflow-auto py-1">
             {branches.map((b) => (
-              <li key={b.name}>
+              <li key={b.name} className="group flex hover:bg-hover">
                 <button
                   onClick={() => !b.current && switchTo(b.name)}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-hover"
+                  className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
                 >
-                  <span className="w-4">
+                  <span className="w-4 shrink-0">
                     {b.current && <Check className="size-4 text-accent" />}
                   </span>
                   <span className="truncate">{b.name}</span>
                 </button>
+                {!b.current && status?.branch && (
+                  <button
+                    onClick={() => mergeIn(b.name)}
+                    title={`Merge ${b.name} into ${status.branch}`}
+                    className="invisible mr-1 flex items-center gap-1 rounded px-1.5 text-xs text-muted group-hover:visible hover:bg-line hover:text-fg"
+                  >
+                    <GitMerge className="size-3.5" />
+                    Merge
+                  </button>
+                )}
               </li>
             ))}
           </ul>

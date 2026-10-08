@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { confirm } from '@tauri-apps/plugin-dialog'
-import { Archive, Minus, Plus, Undo2 } from 'lucide-react'
+import { Archive, GitMerge, Minus, Plus, Undo2 } from 'lucide-react'
 import {
   git,
   isStaged,
@@ -13,6 +13,8 @@ import type { Selection } from './RepoView'
 interface Props {
   repo: RepoInfo
   files: FileChange[]
+  /** Set while a merge is in progress, e.g. "Merge branch 'feature'". */
+  merging: string | null
   selection: Selection | null
   onSelect: (s: Selection) => void
   busy: boolean
@@ -23,6 +25,7 @@ interface Props {
 export default function ChangesPanel({
   repo,
   files,
+  merging,
   selection,
   onSelect,
   busy,
@@ -30,14 +33,33 @@ export default function ChangesPanel({
   act,
 }: Props) {
   const [message, setMessage] = useState('')
+  const conflicts = files.filter((f) => f.conflicted)
   const staged = files.filter(isStaged)
-  const unstaged = files.filter(isUnstaged)
+  const unstaged = files.filter((f) => isUnstaged(f) && !f.conflicted)
   const paths = (list: FileChange[]) => list.map((f) => f.path)
 
+  // A merge can be committed once nothing is conflicted, even with no
+  // staged files, and git already has a message for it.
+  const canCommit = merging
+    ? conflicts.length === 0
+    : message.trim() !== '' && staged.length > 0
+
   async function commit() {
-    if (!message.trim() || staged.length === 0) return
-    if (await act('commit', () => git.commit(repo.path, message)))
-      setMessage('')
+    if (!canCommit) return
+    const done = await act('commit', () =>
+      merging && !message.trim()
+        ? git.mergeCommit(repo.path)
+        : git.commit(repo.path, message),
+    )
+    if (done) setMessage('')
+  }
+
+  async function abortMerge() {
+    const ok = await confirm(
+      'Abort the merge? Your branch goes back to how it was before merging, and conflict resolutions are lost.',
+      { title: 'Abort merge', kind: 'warning' },
+    )
+    if (ok) act('merge', () => git.mergeAbort(repo.path))
   }
 
   async function discard(file: FileChange) {
@@ -55,7 +77,38 @@ export default function ChangesPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {merging && (
+        <div className="border-b border-line bg-modified/10 px-3 py-2">
+          <div className="flex items-center gap-2 font-medium">
+            <GitMerge className="size-4 shrink-0 text-modified" />
+            <span className="min-w-0 flex-1 truncate" title={merging}>
+              {merging}
+            </span>
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-xs text-muted">
+            <span className="flex-1">
+              {conflicts.length > 0
+                ? `${conflicts.length} conflicted file${conflicts.length > 1 ? 's' : ''} to resolve`
+                : 'All conflicts resolved. Commit to finish the merge.'}
+            </span>
+            <button
+              onClick={abortMerge}
+              disabled={busy}
+              className="rounded border border-line px-2 py-0.5 text-fg hover:bg-hover disabled:opacity-40"
+            >
+              Abort merge
+            </button>
+          </div>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-auto">
+        <FileList
+          title="Conflicts"
+          files={conflicts}
+          staged={false}
+          isSelected={isSelected}
+          onSelect={(file) => onSelect({ kind: 'file', file, staged: false })}
+        />
         <FileList
           title="Staged"
           files={staged}
@@ -95,24 +148,24 @@ export default function ChangesPanel({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) commit()
           }}
-          placeholder="Commit message"
+          placeholder={merging ? 'Merge message (optional)' : 'Commit message'}
           rows={3}
           className="w-full resize-none rounded border border-line bg-bg p-2 outline-none select-text focus:border-accent"
         />
         <div className="mt-2 flex gap-2">
           <button
             onClick={commit}
-            disabled={busy || !message.trim() || staged.length === 0}
+            disabled={busy || !canCommit}
             title="Ctrl+Enter"
             className="flex-1 rounded bg-accent py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
-            Commit{' '}
-            {staged.length > 0 &&
-              `${staged.length} file${staged.length > 1 ? 's' : ''}`}
+            {merging
+              ? 'Commit merge'
+              : `Commit${staged.length > 0 ? ` ${staged.length} file${staged.length > 1 ? 's' : ''}` : ''}`}
           </button>
           <button
             onClick={onStash}
-            disabled={busy || files.length === 0}
+            disabled={busy || files.length === 0 || merging !== null}
             title="Stash all changes"
             className="flex items-center gap-1.5 rounded border border-line px-3 hover:bg-hover disabled:opacity-40"
           >
@@ -131,9 +184,9 @@ interface FileListProps {
   staged: boolean
   isSelected: (f: FileChange, staged: boolean) => boolean
   onSelect: (f: FileChange) => void
-  bulkLabel: string
-  onBulk: () => void
-  onToggle: (f: FileChange) => void
+  bulkLabel?: string
+  onBulk?: () => void
+  onToggle?: (f: FileChange) => void
   onDiscard?: (f: FileChange) => void
 }
 
@@ -155,12 +208,14 @@ function FileList({
         <span>
           {title} ({files.length})
         </span>
-        <button
-          onClick={onBulk}
-          className="font-normal tracking-normal normal-case hover:text-fg"
-        >
-          {bulkLabel}
-        </button>
+        {onBulk && (
+          <button
+            onClick={onBulk}
+            className="font-normal tracking-normal normal-case hover:text-fg"
+          >
+            {bulkLabel}
+          </button>
+        )}
       </div>
       <ul>
         {files.map((f) => (
@@ -183,16 +238,18 @@ function FileList({
                 <Undo2 className="size-3.5" />
               </RowButton>
             )}
-            <RowButton
-              title={staged ? 'Unstage' : 'Stage'}
-              onClick={() => onToggle(f)}
-            >
-              {staged ? (
-                <Minus className="size-3.5" />
-              ) : (
-                <Plus className="size-3.5" />
-              )}
-            </RowButton>
+            {onToggle && (
+              <RowButton
+                title={staged ? 'Unstage' : 'Stage'}
+                onClick={() => onToggle(f)}
+              >
+                {staged ? (
+                  <Minus className="size-3.5" />
+                ) : (
+                  <Plus className="size-3.5" />
+                )}
+              </RowButton>
+            )}
           </li>
         ))}
       </ul>

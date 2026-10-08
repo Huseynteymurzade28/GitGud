@@ -17,7 +17,7 @@
 
 A fast, lightweight, open-source Git GUI for Linux, Windows and macOS.
 
-GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's power: history, branches, stash and (soon) rebase and conflict resolution, without hiding what Git is doing.
+GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's power: history, branches, stash, merges and conflict resolution (and soon rebase), without hiding what Git is doing.
 
 > **Status:** early development. Expect rough edges. [Download the latest release](https://github.com/qiral/gitgud/releases/latest).
 
@@ -29,6 +29,7 @@ GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's
 - Clone from a URL or pick from your GitHub repositories, with live progress
 - See changed files, stage and unstage per file or all at once, and discard changes
 - Stage, unstage or discard individual lines and hunks right from the diff
+- Merge branches and resolve conflicts block by block, or abort the merge
 - Inline diff viewer with line numbers
 - Commit (`Ctrl+Enter` in the message box)
 - Stash changes (optionally with untracked files), then apply, pop, preview or delete stashes
@@ -44,6 +45,10 @@ GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's
 **Stage exactly the lines you want.** Click line numbers in the diff (Shift+click for a range), or stage a whole hunk from its header.
 
 ![Staging individual lines](docs/screenshots/changes.png)
+
+**Resolve merge conflicts** block by block (ours, theirs or both), or take one side for the whole file.
+
+![Resolving a merge conflict](docs/screenshots/conflicts.png)
 
 **Stash work in progress** and preview it before bringing it back. Light and dark themes follow your system.
 
@@ -100,7 +105,6 @@ src-tauri/
 
 ## Roadmap
 
-- [ ] Merge and conflict resolution
 - [ ] Interactive rebase with drag and drop
 - [ ] Multiple open repositories
 - [ ] GitHub / GitLab integration

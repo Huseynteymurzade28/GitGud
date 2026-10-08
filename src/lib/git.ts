@@ -21,6 +21,8 @@ export interface Status {
   ahead: number
   behind: number
   files: FileChange[]
+  /** While a merge is in progress: its message, e.g. "Merge branch 'x'". */
+  merging: string | null
 }
 
 export interface Branch {
@@ -124,6 +126,18 @@ export const github = {
     }),
 }
 
+/** A file with conflict markers, split into plain text and conflict blocks. */
+export type ConflictPart =
+  | { kind: 'text'; lines: string[] }
+  | {
+      kind: 'conflict'
+      oursLabel: string
+      ours: string[]
+      base: string[] | null
+      theirsLabel: string
+      theirs: string[]
+    }
+
 export type LineAction = 'stage' | 'unstage' | 'discard'
 
 export const git = {
@@ -155,6 +169,22 @@ export const git = {
   log: (repo: string, limit = 200) => invoke<Commit[]>('log', { repo, limit }),
   showCommit: (repo: string, hash: string) =>
     invoke<string>('show_commit', { repo, hash }),
+  merge: (repo: string, branch: string) =>
+    invoke<{ conflicts: boolean }>('merge', { repo, branch }),
+  mergeAbort: (repo: string) => invoke<void>('merge_abort', { repo }),
+  mergeCommit: (repo: string) => invoke<void>('merge_commit', { repo }),
+  conflictParts: (repo: string, path: string) =>
+    invoke<ConflictPart[]>('conflict_parts', { repo, path }),
+  resolveBlock: (
+    repo: string,
+    path: string,
+    index: number,
+    choice: 'ours' | 'theirs' | 'both',
+  ) => invoke<void>('resolve_block', { repo, path, index, choice }),
+  resolveFile: (repo: string, path: string, side: 'ours' | 'theirs') =>
+    invoke<void>('resolve_file', { repo, path, side }),
+  markResolved: (repo: string, path: string) =>
+    invoke<void>('mark_resolved', { repo, path }),
   stashes: (repo: string) => invoke<Stash[]>('stashes', { repo }),
   stashPush: (repo: string, message: string, includeUntracked: boolean) =>
     invoke<void>('stash_push', { repo, message, includeUntracked }),

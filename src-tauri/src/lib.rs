@@ -1,9 +1,13 @@
+mod conflict;
 mod git;
 mod github;
 mod graph;
 mod patch;
 
-use git::{Branch, Commit, GitError, LineAction, RepoInfo, Result, Stash, Status};
+use conflict::{Choice, Part};
+use git::{
+    Branch, Commit, GitError, LineAction, MergeOutcome, RepoInfo, Result, Side, Stash, Status,
+};
 use github::{Account, CreatedRepo, DeviceCode, PollResult, RemoteRepo};
 use std::path::Path;
 use tauri::Emitter;
@@ -80,6 +84,41 @@ fn log(repo: String, limit: u32) -> Result<Vec<Commit>> {
 #[tauri::command(async)]
 fn show_commit(repo: String, hash: String) -> Result<String> {
     git::show_commit(Path::new(&repo), &hash)
+}
+
+#[tauri::command(async)]
+fn merge(repo: String, branch: String) -> Result<MergeOutcome> {
+    git::merge(Path::new(&repo), &branch)
+}
+
+#[tauri::command(async)]
+fn merge_abort(repo: String) -> Result<()> {
+    git::merge_abort(Path::new(&repo))
+}
+
+#[tauri::command(async)]
+fn merge_commit(repo: String) -> Result<()> {
+    git::merge_commit(Path::new(&repo))
+}
+
+#[tauri::command(async)]
+fn conflict_parts(repo: String, path: String) -> Result<Vec<Part>> {
+    git::conflict_parts(Path::new(&repo), &path)
+}
+
+#[tauri::command(async)]
+fn resolve_block(repo: String, path: String, index: usize, choice: Choice) -> Result<()> {
+    git::resolve_block(Path::new(&repo), &path, index, choice)
+}
+
+#[tauri::command(async)]
+fn resolve_file(repo: String, path: String, side: Side) -> Result<()> {
+    git::resolve_file(Path::new(&repo), &path, side)
+}
+
+#[tauri::command(async)]
+fn mark_resolved(repo: String, path: String) -> Result<()> {
+    git::mark_resolved(Path::new(&repo), &path)
 }
 
 #[tauri::command(async)]
@@ -211,6 +250,13 @@ pub fn run() {
             create_branch,
             log,
             show_commit,
+            merge,
+            merge_abort,
+            merge_commit,
+            conflict_parts,
+            resolve_block,
+            resolve_file,
+            mark_resolved,
             stashes,
             stash_push,
             stash_apply,
