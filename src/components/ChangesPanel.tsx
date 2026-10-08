@@ -7,6 +7,7 @@ import {
   isUnstaged,
   type FileChange,
   type RepoInfo,
+  type Status,
 } from '../lib/git'
 import type { Selection } from './RepoView'
 
@@ -15,6 +16,8 @@ interface Props {
   files: FileChange[]
   /** Set while a merge is in progress, e.g. "Merge branch 'feature'". */
   merging: string | null
+  /** Set while an interactive rebase is stopped. */
+  rebasing: Status['rebasing']
   selection: Selection | null
   onSelect: (s: Selection) => void
   busy: boolean
@@ -26,6 +29,7 @@ export default function ChangesPanel({
   repo,
   files,
   merging,
+  rebasing,
   selection,
   onSelect,
   busy,
@@ -40,12 +44,17 @@ export default function ChangesPanel({
 
   // A merge can be committed once nothing is conflicted, even with no
   // staged files, and git already has a message for it.
-  const canCommit = merging
-    ? conflicts.length === 0
-    : message.trim() !== '' && staged.length > 0
+  const canCommit =
+    merging || rebasing
+      ? conflicts.length === 0
+      : message.trim() !== '' && staged.length > 0
 
   async function commit() {
     if (!canCommit) return
+    if (rebasing) {
+      await act('rebase', () => git.rebaseContinue(repo.path))
+      return
+    }
     const done = await act('commit', () =>
       merging && !message.trim()
         ? git.mergeCommit(repo.path)
@@ -60,6 +69,14 @@ export default function ChangesPanel({
       { title: 'Abort merge', kind: 'warning' },
     )
     if (ok) act('merge', () => git.mergeAbort(repo.path))
+  }
+
+  async function abortRebase() {
+    const ok = await confirm(
+      'Abort the rebase? Your branch goes back to how it was before you started editing history.',
+      { title: 'Abort rebase', kind: 'warning' },
+    )
+    if (ok) act('rebase', () => git.rebaseAbort(repo.path))
   }
 
   async function discard(file: FileChange) {
@@ -77,26 +94,32 @@ export default function ChangesPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {merging && (
+      {(merging || rebasing) && (
         <div className="border-b border-line bg-modified/10 px-3 py-2">
           <div className="flex items-center gap-2 font-medium">
             <GitMerge className="size-4 shrink-0 text-modified" />
-            <span className="min-w-0 flex-1 truncate" title={merging}>
-              {merging}
+            <span
+              className="min-w-0 flex-1 truncate"
+              title={merging ?? undefined}
+            >
+              {merging ??
+                `Editing history of ${rebasing!.branch} (step ${rebasing!.step} of ${rebasing!.total})`}
             </span>
           </div>
           <div className="mt-1 flex items-center gap-2 text-xs text-muted">
             <span className="flex-1">
               {conflicts.length > 0
                 ? `${conflicts.length} conflicted file${conflicts.length > 1 ? 's' : ''} to resolve`
-                : 'All conflicts resolved. Commit to finish the merge.'}
+                : merging
+                  ? 'All conflicts resolved. Commit to finish the merge.'
+                  : 'All conflicts resolved. Continue to apply the next commits.'}
             </span>
             <button
-              onClick={abortMerge}
+              onClick={merging ? abortMerge : abortRebase}
               disabled={busy}
               className="rounded border border-line px-2 py-0.5 text-fg hover:bg-hover disabled:opacity-40"
             >
-              Abort merge
+              {merging ? 'Abort merge' : 'Abort'}
             </button>
           </div>
         </div>
@@ -148,7 +171,14 @@ export default function ChangesPanel({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) commit()
           }}
-          placeholder={merging ? 'Merge message (optional)' : 'Commit message'}
+          disabled={rebasing !== null}
+          placeholder={
+            rebasing
+              ? 'Commits keep their messages while rebasing'
+              : merging
+                ? 'Merge message (optional)'
+                : 'Commit message'
+          }
           rows={3}
           className="w-full resize-none rounded border border-line bg-bg p-2 outline-none select-text focus:border-accent"
         />
@@ -159,13 +189,20 @@ export default function ChangesPanel({
             title="Ctrl+Enter"
             className="flex-1 rounded bg-accent py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
-            {merging
-              ? 'Commit merge'
-              : `Commit${staged.length > 0 ? ` ${staged.length} file${staged.length > 1 ? 's' : ''}` : ''}`}
+            {rebasing
+              ? 'Continue rebase'
+              : merging
+                ? 'Commit merge'
+                : `Commit${staged.length > 0 ? ` ${staged.length} file${staged.length > 1 ? 's' : ''}` : ''}`}
           </button>
           <button
             onClick={onStash}
-            disabled={busy || files.length === 0 || merging !== null}
+            disabled={
+              busy ||
+              files.length === 0 ||
+              merging !== null ||
+              rebasing !== null
+            }
             title="Stash all changes"
             className="flex items-center gap-1.5 rounded border border-line px-3 hover:bg-hover disabled:opacity-40"
           >

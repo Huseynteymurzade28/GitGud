@@ -23,6 +23,8 @@ export interface Status {
   files: FileChange[]
   /** While a merge is in progress: its message, e.g. "Merge branch 'x'". */
   merging: string | null
+  /** While an interactive rebase is stopped, e.g. for conflicts. */
+  rebasing: { step: number; total: number; branch: string } | null
 }
 
 export interface Branch {
@@ -138,6 +140,28 @@ export type ConflictPart =
       theirs: string[]
     }
 
+export interface PlanCommit {
+  hash: string
+  shortHash: string
+  subject: string
+  message: string
+}
+
+export interface RebasePlan {
+  /** Oldest first, the order git replays them in. */
+  commits: PlanCommit[]
+  /** Some commits are already pushed, so rewriting needs a force push. */
+  pushed: boolean
+}
+
+export type RebaseAction = 'pick' | 'reword' | 'squash' | 'fixup' | 'drop'
+
+export interface TodoItem {
+  hash: string
+  action: RebaseAction
+  message?: string
+}
+
 export type LineAction = 'stage' | 'unstage' | 'discard'
 
 export const git = {
@@ -185,6 +209,14 @@ export const git = {
     invoke<void>('resolve_file', { repo, path, side }),
   markResolved: (repo: string, path: string) =>
     invoke<void>('mark_resolved', { repo, path }),
+  rebasePlan: (repo: string, from: string) =>
+    invoke<RebasePlan>('rebase_plan', { repo, from }),
+  rebaseStart: (repo: string, from: string, items: TodoItem[]) =>
+    invoke<{ stopped: boolean }>('rebase_start', { repo, from, items }),
+  rebaseContinue: (repo: string) =>
+    invoke<{ stopped: boolean }>('rebase_continue', { repo }),
+  rebaseAbort: (repo: string) => invoke<void>('rebase_abort', { repo }),
+  pushForce: (repo: string) => invoke<void>('push_force', { repo }),
   stashes: (repo: string) => invoke<Stash[]>('stashes', { repo }),
   stashPush: (repo: string, message: string, includeUntracked: boolean) =>
     invoke<void>('stash_push', { repo, message, includeUntracked }),

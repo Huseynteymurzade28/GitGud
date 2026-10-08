@@ -20,6 +20,7 @@ import StashPanel from './StashPanel'
 import StashDialog from './StashDialog'
 import DiffView from './DiffView'
 import ConflictView from './ConflictView'
+import RebaseDialog from './RebaseDialog'
 import SignInDialog from './SignInDialog'
 import PublishDialog from './PublishDialog'
 
@@ -68,6 +69,7 @@ export default function RepoView({
   const [dialog, setDialog] = useState<'signIn' | 'publish' | 'stash' | null>(
     null,
   )
+  const [rebaseFrom, setRebaseFrom] = useState<Commit | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [diff, setDiff] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -147,11 +149,11 @@ export default function RepoView({
         ) ?? null)
       : null
 
-  // A merge that stops with conflicts needs the Changes tab.
-  const merging = status?.merging ?? null
+  // A merge or rebase that stops with conflicts needs the Changes tab.
+  const stopped = status?.merging ?? status?.rebasing?.step ?? null
   useEffect(() => {
-    if (merging) setTab('changes')
-  }, [merging])
+    if (stopped !== null) setTab('changes')
+  }, [stopped])
 
   /** Runs a git action, shows its errors, and refreshes afterwards. */
   const act = useCallback(
@@ -203,6 +205,14 @@ export default function RepoView({
           }}
         />
       )}
+      {rebaseFrom && (
+        <RebaseDialog
+          repo={repo}
+          from={rebaseFrom}
+          onClose={() => setRebaseFrom(null)}
+          act={act}
+        />
+      )}
       {dialog === 'stash' && (
         <StashDialog repo={repo} onClose={() => setDialog(null)} act={act} />
       )}
@@ -250,6 +260,7 @@ export default function RepoView({
               repo={repo}
               files={status?.files ?? []}
               merging={status?.merging ?? null}
+              rebasing={status?.rebasing ?? null}
               selection={selection}
               onSelect={setSelection}
               busy={busy !== null}
@@ -261,6 +272,11 @@ export default function RepoView({
               commits={commits}
               selection={selection}
               onSelect={setSelection}
+              onRebaseFrom={
+                status?.branch && !status.merging && !status.rebasing
+                  ? setRebaseFrom
+                  : undefined
+              }
             />
           ) : (
             <StashPanel

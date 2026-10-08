@@ -3,12 +3,14 @@ mod git;
 mod github;
 mod graph;
 mod patch;
+mod rebase;
 
 use conflict::{Choice, Part};
 use git::{
     Branch, Commit, GitError, LineAction, MergeOutcome, RepoInfo, Result, Side, Stash, Status,
 };
 use github::{Account, CreatedRepo, DeviceCode, PollResult, RemoteRepo};
+use rebase::{RebaseOutcome, RebasePlan, TodoItem};
 use std::path::Path;
 use tauri::Emitter;
 
@@ -119,6 +121,31 @@ fn resolve_file(repo: String, path: String, side: Side) -> Result<()> {
 #[tauri::command(async)]
 fn mark_resolved(repo: String, path: String) -> Result<()> {
     git::mark_resolved(Path::new(&repo), &path)
+}
+
+#[tauri::command(async)]
+fn rebase_plan(repo: String, from: String) -> Result<RebasePlan> {
+    rebase::plan(Path::new(&repo), &from)
+}
+
+#[tauri::command(async)]
+fn rebase_start(repo: String, from: String, items: Vec<TodoItem>) -> Result<RebaseOutcome> {
+    rebase::start(Path::new(&repo), &from, &items)
+}
+
+#[tauri::command(async)]
+fn rebase_continue(repo: String) -> Result<RebaseOutcome> {
+    rebase::continue_(Path::new(&repo))
+}
+
+#[tauri::command(async)]
+fn rebase_abort(repo: String) -> Result<()> {
+    rebase::abort(Path::new(&repo))
+}
+
+#[tauri::command(async)]
+fn push_force(repo: String) -> Result<()> {
+    git::push_force(Path::new(&repo), &github::git_env())
 }
 
 #[tauri::command(async)]
@@ -257,6 +284,11 @@ pub fn run() {
             resolve_block,
             resolve_file,
             mark_resolved,
+            rebase_plan,
+            rebase_start,
+            rebase_continue,
+            rebase_abort,
+            push_force,
             stashes,
             stash_push,
             stash_apply,

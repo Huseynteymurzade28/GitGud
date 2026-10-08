@@ -53,17 +53,17 @@ fn command(repo: &Path, args: &[&str]) -> Command {
     cmd
 }
 
-fn output(repo: &Path, args: &[&str]) -> Result<Output> {
+pub(crate) fn output(repo: &Path, args: &[&str]) -> Result<Output> {
     Ok(command(repo, args).output()?)
 }
 
 /// Runs git and returns stdout, or stderr as the error when git exits non-zero.
-fn run(repo: &Path, args: &[&str]) -> Result<String> {
+pub(crate) fn run(repo: &Path, args: &[&str]) -> Result<String> {
     run_with_env(repo, args, &[])
 }
 
 /// Like [`run`], with extra environment variables (used for credentials).
-fn run_with_env(repo: &Path, args: &[&str], env: &[(String, String)]) -> Result<String> {
+pub(crate) fn run_with_env(repo: &Path, args: &[&str], env: &[(String, String)]) -> Result<String> {
     let out = command(repo, args).envs(env.iter().cloned()).output()?;
     finish(out, args)
 }
@@ -151,6 +151,8 @@ pub struct Status {
     pub files: Vec<FileChange>,
     /// While a merge is in progress: its message, e.g. "Merge branch 'x'".
     pub merging: Option<String>,
+    /// While an interactive rebase is stopped (e.g. for conflicts).
+    pub rebasing: Option<crate::rebase::RebaseProgress>,
 }
 
 pub fn status(repo: &Path) -> Result<Status> {
@@ -166,6 +168,7 @@ pub fn status(repo: &Path) -> Result<Status> {
     )?;
     let mut status = parse_status(&raw);
     status.merging = merge_message(repo)?;
+    status.rebasing = crate::rebase::progress(repo)?;
     Ok(status)
 }
 
@@ -824,6 +827,12 @@ pub fn push(repo: &Path, env: &[(String, String)]) -> Result<()> {
     } else {
         run_with_env(repo, &["push", "-u", "origin", branch.trim()], env).map(drop)
     }
+}
+
+/// Overwrites the upstream branch after history was rewritten. The lease
+/// makes it fail if someone else pushed in the meantime.
+pub fn push_force(repo: &Path, env: &[(String, String)]) -> Result<()> {
+    run_with_env(repo, &["push", "--force-with-lease"], env).map(drop)
 }
 
 /// URL of the `origin` remote, if there is one.

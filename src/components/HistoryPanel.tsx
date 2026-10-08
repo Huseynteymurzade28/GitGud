@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { PencilLine } from 'lucide-react'
 import type { Commit, GraphRow, RefLabel } from '../lib/git'
 import { relativeTime } from '../lib/time'
 import type { Selection } from './RepoView'
@@ -7,6 +8,8 @@ interface Props {
   commits: Commit[]
   selection: Selection | null
   onSelect: (s: Selection) => void
+  /** Opens history editing from this commit up to HEAD; unset to hide. */
+  onRebaseFrom?: (commit: Commit) => void
 }
 
 const ROW_HEIGHT = 52
@@ -29,7 +32,12 @@ const LANE_COLORS = [
 
 const laneColor = (i: number) => LANE_COLORS[i % LANE_COLORS.length]
 
-export default function HistoryPanel({ commits, selection, onSelect }: Props) {
+export default function HistoryPanel({
+  commits,
+  selection,
+  onSelect,
+  onRebaseFrom,
+}: Props) {
   const lanes = useMemo(
     () =>
       Math.min(MAX_LANES, Math.max(1, ...commits.map((c) => c.graph.width))),
@@ -52,7 +60,7 @@ export default function HistoryPanel({ commits, selection, onSelect }: Props) {
             key={c.hash}
             onClick={() => onSelect({ kind: 'commit', commit: c })}
             style={{ height: ROW_HEIGHT }}
-            className={`flex cursor-default items-center pr-3 ${
+            className={`group flex cursor-default items-center pr-3 ${
               selected ? 'bg-hover' : 'hover:bg-hover/60'
             }`}
           >
@@ -73,6 +81,19 @@ export default function HistoryPanel({ commits, selection, onSelect }: Props) {
                 <span className="ml-auto shrink-0 font-mono">
                   {c.shortHash}
                 </span>
+                {onRebaseFrom && c.parents.length <= 1 && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onRebaseFrom(c)
+                    }}
+                    title="Edit history from this commit: reorder, squash, reword or drop"
+                    className="hidden shrink-0 items-center gap-1 rounded px-1 text-muted group-hover:flex hover:bg-line hover:text-fg"
+                  >
+                    <PencilLine className="size-3" />
+                    Edit from here
+                  </button>
+                )}
               </div>
             </div>
           </li>
