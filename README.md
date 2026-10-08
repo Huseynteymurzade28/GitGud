@@ -1,3 +1,5 @@
+<img src="assets/icon.svg" width="96" alt="GitGud icon">
+
 # GitGud
 
 [![CI](https://github.com/qiral/gitgud/actions/workflows/ci.yml/badge.svg)](https://github.com/qiral/gitgud/actions/workflows/ci.yml)
