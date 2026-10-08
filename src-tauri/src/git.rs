@@ -515,7 +515,15 @@ pub fn show_commit(repo: &Path, hash: &str) -> Result<String> {
     }
     run(
         repo,
-        &["show", "--no-color", "--no-ext-diff", "--format=%B", hash],
+        &[
+            "show",
+            "--no-color",
+            "--no-ext-diff",
+            // Merges have no diff by default; show what they brought in.
+            "--diff-merges=first-parent",
+            "--format=%B",
+            hash,
+        ],
     )
 }
 
@@ -1023,6 +1031,37 @@ mod tests {
         assert!(dest.join("README").exists());
         assert!(!events.is_empty());
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn shows_what_a_merge_brought_in() {
+        let dir = std::env::temp_dir().join(format!("gitgud-merge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.as_path();
+        run(repo, &["init", "-q", "-b", "main"]).unwrap();
+        run(repo, &["config", "user.name", "T"]).unwrap();
+        run(repo, &["config", "user.email", "t@x"]).unwrap();
+        run(repo, &["config", "commit.gpgsign", "false"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "a\n").unwrap();
+        stage(repo, &["a.txt".into()]).unwrap();
+        commit(repo, "init").unwrap();
+        create_branch(repo, "feature").unwrap();
+        std::fs::write(dir.join("b.txt"), "from feature\n").unwrap();
+        stage(repo, &["b.txt".into()]).unwrap();
+        commit(repo, "feature work").unwrap();
+        switch_branch(repo, "main").unwrap();
+        run(
+            repo,
+            &["merge", "-q", "--no-ff", "-m", "merge feature", "feature"],
+        )
+        .unwrap();
+
+        let merge = &log(repo, 1).unwrap()[0];
+        assert_eq!(merge.parents.len(), 2);
+        let shown = show_commit(repo, &merge.hash).unwrap();
+        assert!(shown.contains("+from feature"), "{shown}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
