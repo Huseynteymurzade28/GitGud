@@ -1,8 +1,9 @@
 mod git;
 mod github;
 mod graph;
+mod patch;
 
-use git::{Branch, Commit, GitError, RepoInfo, Result, Stash, Status};
+use git::{Branch, Commit, GitError, LineAction, RepoInfo, Result, Stash, Status};
 use github::{Account, CreatedRepo, DeviceCode, PollResult, RemoteRepo};
 use std::path::Path;
 use tauri::Emitter;
@@ -39,6 +40,11 @@ fn unstage(repo: String, paths: Vec<String>) -> Result<()> {
 #[tauri::command(async)]
 fn discard(repo: String, paths: Vec<String>) -> Result<()> {
     git::discard(Path::new(&repo), &paths)
+}
+
+#[tauri::command(async)]
+fn apply_lines(repo: String, diff: String, lines: Vec<usize>, action: LineAction) -> Result<()> {
+    git::apply_lines(Path::new(&repo), &diff, &lines, action)
 }
 
 #[tauri::command(async)]
@@ -197,6 +203,7 @@ pub fn run() {
             stage,
             unstage,
             discard,
+            apply_lines,
             commit,
             diff,
             branches,

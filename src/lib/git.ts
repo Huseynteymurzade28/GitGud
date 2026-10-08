@@ -124,6 +124,8 @@ export const github = {
     }),
 }
 
+export type LineAction = 'stage' | 'unstage' | 'discard'
+
 export const git = {
   initialRepo: () => invoke<string | null>('initial_repo'),
   openRepo: (path: string) => invoke<RepoInfo>('open_repo', { path }),
@@ -134,6 +136,13 @@ export const git = {
     invoke<void>('unstage', { repo, paths }),
   discard: (repo: string, paths: string[]) =>
     invoke<void>('discard', { repo, paths }),
+  /** Applies only some lines of `diff`; `lines` index into diff.split('\n'). */
+  applyLines: (
+    repo: string,
+    diff: string,
+    lines: number[],
+    action: LineAction,
+  ) => invoke<void>('apply_lines', { repo, diff, lines, action }),
   commit: (repo: string, message: string) =>
     invoke<void>('commit', { repo, message }),
   diff: (repo: string, path: string, staged: boolean, untracked: boolean) =>

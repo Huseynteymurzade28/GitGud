@@ -17,6 +17,7 @@ GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's
 - Open any local repository (or pass it on the command line: `gitgud ~/code/project`)
 - Clone from a URL or pick from your GitHub repositories, with live progress
 - See changed files, stage and unstage per file or all at once, and discard changes
+- Stage, unstage or discard individual lines and hunks right from the diff
 - Inline diff viewer with line numbers
 - Commit (`Ctrl+Enter` in the message box)
 - Stash changes (optionally with untracked files), then apply, pop, preview or delete stashes
@@ -78,7 +79,6 @@ src-tauri/
 
 ## Roadmap
 
-- [ ] Stage individual lines and hunks
 - [ ] Merge and conflict resolution
 - [ ] Interactive rebase with drag and drop
 - [ ] Multiple open repositories

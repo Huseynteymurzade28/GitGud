@@ -260,7 +260,22 @@ export default function RepoView({
 
         <section className="min-w-0 flex-1 overflow-auto">
           {selection ? (
-            <DiffView diff={diff} />
+            <DiffView
+              diff={diff}
+              actions={
+                selection.kind === 'file' &&
+                !selection.file.untracked &&
+                !selection.file.conflicted
+                  ? {
+                      staged: selection.staged,
+                      onApply: (lines, action) =>
+                        act('lines', () =>
+                          git.applyLines(repo.path, diff, lines, action),
+                        ),
+                    }
+                  : undefined
+              }
+            />
           ) : (
             <div className="flex h-full items-center justify-center text-muted">
               {EMPTY_HINT[tab]}
