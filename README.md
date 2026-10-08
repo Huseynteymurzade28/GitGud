@@ -105,9 +105,7 @@ src-tauri/
 
 ## Roadmap
 
-- [ ] Interactive rebase with drag and drop
-- [ ] Multiple open repositories
-- [ ] GitHub / GitLab integration
+Planned work lives in [GitHub issues](https://github.com/qiral/gitgud/issues). Next up is [interactive rebase with drag and drop](https://github.com/qiral/gitgud/issues/36). Issues labeled [good first issue](https://github.com/qiral/gitgud/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) are a nice place to start contributing.
 
 ## Releases
 
