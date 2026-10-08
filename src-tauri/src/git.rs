@@ -897,6 +897,8 @@ mod tests {
         run(repo, &["config", "user.name", "T"]).unwrap();
         run(repo, &["config", "user.email", "t@x"]).unwrap();
         run(repo, &["config", "commit.gpgsign", "false"]).unwrap();
+        // Windows runners default to autocrlf=true, which would rewrite "two\n".
+        run(repo, &["config", "core.autocrlf", "false"]).unwrap();
         std::fs::write(dir.join("a.txt"), "one\n").unwrap();
         stage(repo, &["a.txt".into()]).unwrap();
         commit(repo, "init").unwrap();
