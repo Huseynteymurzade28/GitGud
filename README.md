@@ -17,7 +17,7 @@
 
 A fast, lightweight, open-source Git GUI for Linux, Windows and macOS.
 
-GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's power: history, branches, stash, merges and conflict resolution (and soon rebase), without hiding what Git is doing.
+GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's power: history, branches, stash, merges, conflict resolution and interactive rebase, without hiding what Git is doing.
 
 > **Status:** early development. Expect rough edges. [Download the latest release](https://github.com/qiral/gitgud/releases/latest).
 
@@ -30,6 +30,7 @@ GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's
 - See changed files, stage and unstage per file or all at once, and discard changes
 - Stage, unstage or discard individual lines and hunks right from the diff
 - Merge branches and resolve conflicts block by block, or abort the merge
+- Edit history: reorder commits by dragging, squash, fixup, reword or drop them
 - Inline diff viewer with line numbers
 - Commit (`Ctrl+Enter` in the message box)
 - Stash changes (optionally with untracked files), then apply, pop, preview or delete stashes
@@ -49,6 +50,10 @@ GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's
 **Resolve merge conflicts** block by block (ours, theirs or both), or take one side for the whole file.
 
 ![Resolving a merge conflict](docs/screenshots/conflicts.png)
+
+**Edit history** without the terminal: drag commits into a new order, squash or drop them, or fix a message.
+
+![Editing history with interactive rebase](docs/screenshots/rebase.png)
 
 **Stash work in progress** and preview it before bringing it back. Light and dark themes follow your system.
 
@@ -105,7 +110,7 @@ src-tauri/
 
 ## Roadmap
 
-Planned work lives in [GitHub issues](https://github.com/qiral/gitgud/issues). Next up is [interactive rebase with drag and drop](https://github.com/qiral/gitgud/issues/36). Issues labeled [good first issue](https://github.com/qiral/gitgud/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) are a nice place to start contributing.
+Planned work lives in [GitHub issues](https://github.com/qiral/gitgud/issues). Issues labeled [good first issue](https://github.com/qiral/gitgud/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) are a nice place to start contributing.
 
 ## Releases
 

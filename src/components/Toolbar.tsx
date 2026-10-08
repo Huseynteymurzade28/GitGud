@@ -58,6 +58,18 @@ export default function Toolbar({
   const hasUpstream = Boolean(status?.upstream)
   // Without any remote, "push" means creating the repository on GitHub first.
   const needsRemote = !hasUpstream && originUrl === null
+  // After editing pushed history, a normal push is rejected.
+  const diverged = hasUpstream && ahead > 0 && behind > 0
+
+  async function forcePush() {
+    const ok = await confirm(
+      `Your branch and ${status?.upstream} have diverged (${ahead} ahead, ${behind} behind).\n\n` +
+        'Force pushing replaces the remote branch with yours. Do this after editing history you already pushed. ' +
+        'If someone else pushed to this branch, Pull instead, or their commits will be lost.',
+      { title: 'Force push', kind: 'warning', okLabel: 'Force push' },
+    )
+    if (ok) act('push', () => git.pushForce(repo.path))
+  }
 
   return (
     <header className="flex h-12 shrink-0 items-stretch border-b border-line">
@@ -87,6 +99,15 @@ export default function Toolbar({
           label="Publish"
           value="to GitHub"
           icon={<GithubIcon className="size-4" />}
+        />
+      ) : diverged ? (
+        <ToolbarButton
+          onClick={forcePush}
+          disabled={busy !== null}
+          label="Force push"
+          value={`${ahead} ahead, ${behind} behind`}
+          title="Your branch and its upstream have different histories"
+          icon={<Spin active={busy === 'push'} icon={ArrowUp} />}
         />
       ) : (
         <ToolbarButton
