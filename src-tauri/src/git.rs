@@ -730,7 +730,9 @@ mod tests {
         )
         .unwrap();
 
-        let url = format!("file://{}", src.display());
+        // file:///C:/... on Windows, file:///tmp/... elsewhere.
+        let path = src.display().to_string().replace('\\', "/");
+        let url = format!("file:///{}", path.trim_start_matches('/'));
         assert!(
             clone(&url, &base, "dst", &[], |_| {}).is_err(),
             "file:// is not user-facing"

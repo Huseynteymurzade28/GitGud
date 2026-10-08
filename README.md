@@ -1,5 +1,7 @@
 # GitGud
 
+[![CI](https://github.com/qiral/gitgud/actions/workflows/ci.yml/badge.svg)](https://github.com/qiral/gitgud/actions/workflows/ci.yml)
+
 _git gud at git._
 
 A fast, lightweight, open-source Git GUI for Linux, Windows and macOS.
@@ -80,6 +82,10 @@ src-tauri/
 - [ ] Interactive rebase with drag and drop
 - [ ] Multiple open repositories
 - [ ] GitHub / GitLab integration
+
+## Releases
+
+Push a tag such as `v0.2.0` and the Release workflow builds installers for Linux (AppImage, .deb, .rpm), Windows (.msi, .exe) and macOS (Intel and Apple Silicon .dmg), then attaches them to a draft GitHub release. Bump `version` in `src-tauri/tauri.conf.json` first. Builds are not code-signed yet, so Windows and macOS will warn on first launch.
 
 ## Contributing
 
