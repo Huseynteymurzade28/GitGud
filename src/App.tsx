@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
-import { FolderOpen, GitBranch } from 'lucide-react'
+import { Download, FolderOpen, GitBranch } from 'lucide-react'
 import {
   errorMessage,
   git,
@@ -9,6 +9,7 @@ import {
   type RepoInfo,
 } from './lib/git'
 import RepoView from './components/RepoView'
+import CloneDialog from './components/CloneDialog'
 
 const LAST_REPO_KEY = 'gitgud.lastRepo'
 
@@ -33,13 +34,17 @@ export default function App() {
   const [account, setAccount] = useState<Account | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [cloning, setCloning] = useState(false)
+
+  function show(info: RepoInfo) {
+    setRepo(info)
+    setError(null)
+    writeLastRepo(info.path)
+  }
 
   async function openPath(path: string) {
     try {
-      const info = await git.openRepo(path)
-      setRepo(info)
-      setError(null)
-      writeLastRepo(info.path)
+      show(await git.openRepo(path))
     } catch (e) {
       setError(errorMessage(e))
     }
@@ -72,15 +77,36 @@ export default function App() {
 
   if (loading) return null
 
+  const cloneDialog = cloning && (
+    <CloneDialog
+      account={account}
+      onAccountChange={setAccount}
+      onClose={() => setCloning(false)}
+      onCloned={(info) => {
+        setCloning(false)
+        show(info)
+      }}
+    />
+  )
+
   if (repo)
     return (
-      <RepoView
-        repo={repo}
-        account={account}
-        onAccountChange={setAccount}
-        onOpenOther={pickRepo}
-      />
+      <>
+        <RepoView
+          // Remount so per-repo state (selection, diff) starts fresh.
+          key={repo.path}
+          repo={repo}
+          account={account}
+          onAccountChange={setAccount}
+          onOpenOther={pickRepo}
+          onClone={() => setCloning(true)}
+        />
+        {cloneDialog}
+      </>
     )
+
+  const button =
+    'flex items-center gap-2 rounded-md px-4 py-2 font-medium hover:opacity-90'
 
   return (
     <main className="flex h-full flex-col items-center justify-center gap-6 p-8 text-center">
@@ -89,14 +115,21 @@ export default function App() {
         <h1 className="text-2xl font-semibold">GitGud</h1>
         <p className="mt-1 text-muted">Open a Git repository to get started.</p>
       </div>
-      <button
-        onClick={pickRepo}
-        className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 font-medium text-white hover:opacity-90"
-      >
-        <FolderOpen className="size-4" />
-        Open repository
-      </button>
+      <div className="flex gap-3">
+        <button onClick={pickRepo} className={`${button} bg-accent text-white`}>
+          <FolderOpen className="size-4" />
+          Open repository
+        </button>
+        <button
+          onClick={() => setCloning(true)}
+          className={`${button} border border-line hover:bg-hover`}
+        >
+          <Download className="size-4" />
+          Clone repository
+        </button>
+      </div>
       {error && <p className="max-w-md text-removed">{error}</p>}
+      {cloneDialog}
     </main>
   )
 }

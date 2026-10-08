@@ -4,7 +4,9 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  Download,
   FolderGit2,
+  FolderOpen,
   GitBranch,
   Loader2,
   LogOut,
@@ -28,6 +30,7 @@ interface Props {
   account: Account | null
   busy: string | null
   onOpenOther: () => void
+  onClone: () => void
   onSignIn: () => void
   onSignOut: () => void
   onPublish: () => void
@@ -42,6 +45,7 @@ export default function Toolbar({
   account,
   busy,
   onOpenOther,
+  onClone,
   onSignIn,
   onSignOut,
   onPublish,
@@ -55,13 +59,7 @@ export default function Toolbar({
 
   return (
     <header className="flex h-12 shrink-0 items-stretch border-b border-line">
-      <ToolbarButton
-        onClick={onOpenOther}
-        label="Repository"
-        value={repo.name}
-        icon={<FolderGit2 className="size-4" />}
-        title={repo.path}
-      />
+      <RepoMenu repo={repo} onOpenOther={onOpenOther} onClone={onClone} />
       <BranchMenu repo={repo} status={status} branches={branches} act={act} />
 
       <div className="flex-1" />
@@ -159,6 +157,52 @@ function ToolbarButton({
       </span>
       {trailing}
     </button>
+  )
+}
+
+function RepoMenu({
+  repo,
+  onOpenOther,
+  onClone,
+}: Pick<Props, 'repo' | 'onOpenOther' | 'onClone'>) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, open, () => setOpen(false))
+
+  const item = (label: string, icon: React.ReactNode, action: () => void) => (
+    <button
+      onClick={() => {
+        setOpen(false)
+        action()
+      }}
+      className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-hover"
+    >
+      {icon}
+      {label}
+    </button>
+  )
+
+  return (
+    <div ref={ref} className="relative flex">
+      <ToolbarButton
+        onClick={() => setOpen((o) => !o)}
+        label="Repository"
+        value={repo.name}
+        icon={<FolderGit2 className="size-4" />}
+        title={repo.path}
+        trailing={<ChevronDown className="size-4 text-muted" />}
+      />
+      {open && (
+        <div className="absolute top-full left-0 z-10 mt-1 w-60 overflow-hidden rounded-md border border-line bg-panel shadow-lg">
+          {item(
+            'Open local repository…',
+            <FolderOpen className="size-4" />,
+            onOpenOther,
+          )}
+          {item('Clone repository…', <Download className="size-4" />, onClone)}
+        </div>
+      )}
+    </div>
   )
 }
 

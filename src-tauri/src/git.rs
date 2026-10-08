@@ -5,8 +5,9 @@
 //! can never be interpreted as commands.
 
 use serde::Serialize;
-use std::path::Path;
-use std::process::{Command, Output};
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GitError {
@@ -129,7 +130,13 @@ pub struct Status {
 pub fn status(repo: &Path) -> Result<Status> {
     let raw = run(
         repo,
-        &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"],
+        &[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "-z",
+            "--untracked-files=all",
+        ],
     )?;
     Ok(parse_status(&raw))
 }
@@ -267,7 +274,10 @@ pub fn diff(repo: &Path, path: &str, staged: bool, untracked: bool) -> Result<St
     if untracked {
         // `--no-index` exits with 1 when the files differ, which is always the
         // case here, so read the output regardless of the exit code.
-        let out = output(repo, &["diff", "--no-color", "--no-index", "--", "/dev/null", path])?;
+        let out = output(
+            repo,
+            &["diff", "--no-color", "--no-index", "--", "/dev/null", path],
+        )?;
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
     let mut args = vec!["diff", "--no-color", "--no-ext-diff"];
@@ -309,7 +319,11 @@ fn parse_branches(raw: &str) -> Vec<Branch> {
             let name = f.next()?.to_string();
             let current = f.next()? == "*";
             let upstream = f.next().filter(|u| !u.is_empty()).map(String::from);
-            Some(Branch { name, current, upstream })
+            Some(Branch {
+                name,
+                current,
+                upstream,
+            })
         })
         .collect()
 }
@@ -346,7 +360,11 @@ pub fn log(repo: &Path, limit: u32) -> Result<Vec<Commit>> {
     let limit = format!("-n{limit}");
     let raw = run(
         repo,
-        &["log", &limit, "--format=%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%s%x1e"],
+        &[
+            "log",
+            &limit,
+            "--format=%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%s%x1e",
+        ],
     )?;
     Ok(parse_log(&raw))
 }
@@ -417,6 +435,132 @@ pub fn add_origin(repo: &Path, url: &str) -> Result<()> {
     run(repo, &["remote", "add", "origin", url]).map(drop)
 }
 
+// ---------------------------------------------------------------------------
+// Clone
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CloneProgress {
+    /// e.g. "Receiving objects"
+    pub phase: String,
+    pub percent: u8,
+}
+
+/// Accepts the URL forms people actually paste, and nothing that could make
+/// git run a helper program (such as `ext::`) or be read as an option.
+fn is_allowed_clone_url(url: &str) -> bool {
+    let schemes = ["https://", "http://", "ssh://", "git://"];
+    if schemes.iter().any(|s| url.starts_with(s)) {
+        return true;
+    }
+    // scp-like syntax: user@host:path
+    match url.split_once(':') {
+        Some((user_host, path)) => {
+            !path.is_empty()
+                && user_host.contains('@')
+                && !user_host.starts_with('-')
+                && !user_host.contains('/')
+        }
+        None => false,
+    }
+}
+
+/// Parses one line of `git clone --progress` output, e.g.
+/// `Receiving objects:  45% (450/1000), 1.20 MiB | 2.00 MiB/s`.
+fn parse_progress(line: &str) -> Option<CloneProgress> {
+    let line = line.trim().trim_start_matches("remote: ");
+    let (phase, rest) = line.split_once(':')?;
+    let percent = rest.trim_start().split('%').next()?.trim().parse().ok()?;
+    Some(CloneProgress {
+        phase: phase.trim().to_string(),
+        percent,
+    })
+}
+
+/// Clones `url` into `parent/name` and returns the new repository's path.
+/// `on_progress` is called whenever git reports a new percentage.
+pub fn clone(
+    url: &str,
+    parent: &Path,
+    name: &str,
+    env: &[(String, String)],
+    on_progress: impl FnMut(CloneProgress),
+) -> Result<PathBuf> {
+    let url = url.trim();
+    if !is_allowed_clone_url(url) {
+        return Err(GitError::Failed(format!(
+            "Unsupported repository URL: {url}"
+        )));
+    }
+    clone_unchecked(url, parent, name, env, on_progress)
+}
+
+/// [`clone`] without the URL allow-list; tests use it with `file://` URLs.
+fn clone_unchecked(
+    url: &str,
+    parent: &Path,
+    name: &str,
+    env: &[(String, String)],
+    mut on_progress: impl FnMut(CloneProgress),
+) -> Result<PathBuf> {
+    if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+        return Err(GitError::Failed(format!("Invalid folder name: {name}")));
+    }
+    let dest = parent.join(name);
+    if dest.exists() {
+        return Err(GitError::Failed(format!(
+            "{} already exists",
+            dest.display()
+        )));
+    }
+
+    let mut child = command(parent, &["clone", "--progress", "--", url, name])
+        .envs(env.iter().cloned())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // git rewrites progress lines in place with '\r', so split on both.
+    let mut stderr = child.stderr.take().expect("stderr is piped");
+    let mut messages = Vec::new();
+    let mut line = Vec::new();
+    let mut last: Option<CloneProgress> = None;
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = stderr.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        for &byte in &buf[..n] {
+            if byte != b'\r' && byte != b'\n' {
+                line.push(byte);
+                continue;
+            }
+            let text = String::from_utf8_lossy(&line).into_owned();
+            line.clear();
+            match parse_progress(&text) {
+                Some(p) if last.as_ref() != Some(&p) => {
+                    on_progress(p.clone());
+                    last = Some(p);
+                }
+                Some(_) => {}
+                None if !text.trim().is_empty() => messages.push(text),
+                None => {}
+            }
+        }
+    }
+
+    if child.wait()?.success() {
+        Ok(dest)
+    } else {
+        let tail = messages[messages.len().saturating_sub(5)..].join("\n");
+        Err(GitError::Failed(if tail.is_empty() {
+            "git clone failed".into()
+        } else {
+            tail
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,7 +623,9 @@ mod tests {
         assert!(log(repo, 10).unwrap().is_empty());
         std::fs::write(dir.join("a b.txt"), "hello\n").unwrap();
         assert!(status(repo).unwrap().files[0].untracked);
-        assert!(diff(repo, "a b.txt", false, true).unwrap().contains("+hello"));
+        assert!(diff(repo, "a b.txt", false, true)
+            .unwrap()
+            .contains("+hello"));
         stage(repo, &["a b.txt".into()]).unwrap();
         assert_eq!(status(repo).unwrap().files[0].index, 'A');
         unstage(repo, &["a b.txt".into()]).unwrap();
@@ -511,8 +657,120 @@ mod tests {
             Some("https://github.com/example/repo.git")
         );
 
-        assert!(matches!(open(&std::env::temp_dir()), Err(GitError::NotARepo(_))));
+        assert!(matches!(
+            open(&std::env::temp_dir()),
+            Err(GitError::NotARepo(_))
+        ));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn checks_clone_urls() {
+        for ok in [
+            "https://github.com/a/b.git",
+            "git@github.com:a/b.git",
+            "ssh://git@host/a/b",
+        ] {
+            assert!(is_allowed_clone_url(ok), "{ok}");
+        }
+        for bad in [
+            "ext::sh -c touch% /tmp/pwned",
+            "--upload-pack=touch /tmp/pwned",
+            "/local/path",
+            "file:///etc",
+            "-u@host:path",
+            "github.com/a/b",
+        ] {
+            assert!(!is_allowed_clone_url(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn parses_clone_progress() {
+        assert_eq!(
+            parse_progress("Receiving objects:  45% (450/1000), 1.20 MiB | 2.00 MiB/s"),
+            Some(CloneProgress {
+                phase: "Receiving objects".into(),
+                percent: 45
+            })
+        );
+        assert_eq!(
+            parse_progress("remote: Counting objects: 100% (12/12), done."),
+            Some(CloneProgress {
+                phase: "Counting objects".into(),
+                percent: 100
+            })
+        );
+        assert_eq!(parse_progress("Cloning into 'x'..."), None);
+        assert_eq!(parse_progress("remote: Total 12 (delta 0)"), None);
+    }
+
+    #[test]
+    fn clones_with_progress() {
+        let base = std::env::temp_dir().join(format!("gitgud-clone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let src = base.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        run(&src, &["init", "-q", "-b", "main"]).unwrap();
+        std::fs::write(src.join("f.txt"), "x").unwrap();
+        run(&src, &["add", "."]).unwrap();
+        run(
+            &src,
+            &[
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@x",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "c",
+            ],
+        )
+        .unwrap();
+
+        let url = format!("file://{}", src.display());
+        assert!(
+            clone(&url, &base, "dst", &[], |_| {}).is_err(),
+            "file:// is not user-facing"
+        );
+
+        let mut events = Vec::new();
+        let dest = clone_unchecked(&url, &base, "dst", &[], |p| events.push(p)).unwrap();
+        assert!(dest.join("f.txt").exists());
+        assert!(events.iter().any(|p| p.percent == 100), "{events:?}");
+
+        assert!(
+            clone_unchecked(&url, &base, "dst", &[], |_| {}).is_err(),
+            "dest exists"
+        );
+        assert!(
+            clone_unchecked(&url, &base, "../x", &[], |_| {}).is_err(),
+            "bad name"
+        );
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// Needs network access: `cargo test -- --ignored`
+    #[test]
+    #[ignore]
+    fn clones_from_github() {
+        let base = std::env::temp_dir().join(format!("gitgud-gh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let mut events = Vec::new();
+        let dest = clone(
+            "https://github.com/octocat/Hello-World.git",
+            &base,
+            "hello",
+            &[],
+            |p| events.push(p),
+        )
+        .unwrap();
+        assert!(dest.join("README").exists());
+        assert!(!events.is_empty());
+        std::fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]

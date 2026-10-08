@@ -117,10 +117,16 @@ pub fn start_sign_in() -> Result<DeviceCode> {
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum PollResult {
     /// The user hasn't approved yet; poll again after `interval` seconds.
-    Pending { interval: u64 },
-    Done { account: Account },
+    Pending {
+        interval: u64,
+    },
+    Done {
+        account: Account,
+    },
     /// The code expired or the user denied access.
-    Failed { message: String },
+    Failed {
+        message: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -240,4 +246,50 @@ pub fn create_repo(name: &str, description: &str, private: bool) -> Result<Creat
     Err(GitError::Failed(format!(
         "Could not create repository: {reason}"
     )))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Owner {
+    pub login: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct RemoteRepo {
+    pub full_name: String,
+    pub name: String,
+    pub owner: Owner,
+    pub description: Option<String>,
+    pub private: bool,
+    pub fork: bool,
+    pub clone_url: String,
+    pub updated_at: String,
+}
+
+/// Repositories the user owns, collaborates on, or can see through an
+/// organization, most recently updated first.
+pub fn list_repos() -> Result<Vec<RemoteRepo>> {
+    const PER_PAGE: usize = 100;
+    // Enough for almost everyone; avoids hammering the API for huge orgs.
+    const MAX_PAGES: usize = 10;
+
+    let token = token()?;
+    let mut repos = Vec::new();
+    for page in 1..=MAX_PAGES {
+        let batch: Vec<RemoteRepo> = api_get(
+            &token,
+            &format!("/user/repos?sort=updated&per_page={PER_PAGE}&page={page}"),
+        )
+        .call()
+        .map_err(http_error)?
+        .body_mut()
+        .read_json()
+        .map_err(http_error)?;
+        let done = batch.len() < PER_PAGE;
+        repos.extend(batch);
+        if done {
+            break;
+        }
+    }
+    Ok(repos)
 }

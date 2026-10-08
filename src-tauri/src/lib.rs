@@ -2,8 +2,9 @@ mod git;
 mod github;
 
 use git::{Branch, Commit, GitError, RepoInfo, Result, Status};
-use github::{Account, CreatedRepo, DeviceCode, PollResult};
+use github::{Account, CreatedRepo, DeviceCode, PollResult, RemoteRepo};
 use std::path::Path;
+use tauri::Emitter;
 
 // Commands are marked `async` so git runs on a worker thread instead of
 // blocking the UI thread.
@@ -134,6 +135,25 @@ fn publish_to_github(
     Ok(created)
 }
 
+#[tauri::command(async)]
+fn github_repos() -> Result<Vec<RemoteRepo>> {
+    github::list_repos()
+}
+
+/// Clones into `parent/name`, emitting `clone-progress` events while it runs.
+#[tauri::command(async)]
+fn clone_repo(
+    app: tauri::AppHandle,
+    url: String,
+    parent: String,
+    name: String,
+) -> Result<RepoInfo> {
+    let dest = git::clone(&url, Path::new(&parent), &name, &github::git_env(), |p| {
+        let _ = app.emit("clone-progress", p);
+    })?;
+    git::open(&dest)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -162,6 +182,8 @@ pub fn run() {
             github_poll_sign_in,
             github_sign_out,
             publish_to_github,
+            github_repos,
+            clone_repo,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

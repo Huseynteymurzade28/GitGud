@@ -5,9 +5,10 @@ interface Props {
   title: string
   onClose: () => void
   children: React.ReactNode
+  wide?: boolean
 }
 
-export default function Dialog({ title, onClose, children }: Props) {
+export default function Dialog({ title, onClose, children, wide }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
@@ -19,7 +20,9 @@ export default function Dialog({ title, onClose, children }: Props) {
       className="fixed inset-0 z-20 flex items-center justify-center bg-black/50"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="w-96 rounded-lg border border-line bg-panel shadow-xl">
+      <div
+        className={`${wide ? 'w-[32rem]' : 'w-96'} max-w-[calc(100vw-2rem)] rounded-lg border border-line bg-panel shadow-xl`}
+      >
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <h2 className="font-semibold">{title}</h2>
           <button onClick={onClose} className="text-muted hover:text-fg">

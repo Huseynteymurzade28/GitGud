@@ -31,6 +31,7 @@ interface Props {
   account: Account | null
   onAccountChange: (account: Account | null) => void
   onOpenOther: () => void
+  onClone: () => void
 }
 
 export default function RepoView({
@@ -38,6 +39,7 @@ export default function RepoView({
   account,
   onAccountChange,
   onOpenOther,
+  onClone,
 }: Props) {
   const [tab, setTab] = useState<Tab>('changes')
   const [status, setStatus] = useState<Status | null>(null)
@@ -133,6 +135,7 @@ export default function RepoView({
         account={account}
         busy={busy}
         onOpenOther={onOpenOther}
+        onClone={onClone}
         onSignIn={() => setDialog('signIn')}
         onSignOut={() =>
           act('signOut', async () => {

@@ -63,7 +63,24 @@ export interface CreatedRepo {
   htmlUrl: string
 }
 
+export interface RemoteRepo {
+  fullName: string
+  name: string
+  owner: { login: string }
+  description: string | null
+  private: boolean
+  fork: boolean
+  cloneUrl: string
+  updatedAt: string
+}
+
+export interface CloneProgress {
+  phase: string
+  percent: number
+}
+
 export const github = {
+  repos: () => invoke<RemoteRepo[]>('github_repos'),
   account: () => invoke<Account | null>('github_account'),
   startSignIn: () => invoke<DeviceCode>('github_start_sign_in'),
   pollSignIn: (deviceCode: string, interval: number) =>
@@ -108,6 +125,8 @@ export const git = {
   fetch: (repo: string) => invoke<void>('fetch', { repo }),
   pull: (repo: string) => invoke<void>('pull', { repo }),
   push: (repo: string) => invoke<void>('push', { repo }),
+  clone: (url: string, parent: string, name: string) =>
+    invoke<RepoInfo>('clone_repo', { url, parent, name }),
   originUrl: (repo: string) => invoke<string | null>('origin_url', { repo }),
 }
 
