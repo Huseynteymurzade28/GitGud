@@ -6,6 +6,7 @@
 
 use serde::Serialize;
 
+use crate::conflict;
 use crate::graph::{self, GraphRow};
 use crate::patch;
 use std::io::Read;
@@ -148,6 +149,8 @@ pub struct Status {
     pub ahead: u32,
     pub behind: u32,
     pub files: Vec<FileChange>,
+    /// While a merge is in progress: its message, e.g. "Merge branch 'x'".
+    pub merging: Option<String>,
 }
 
 pub fn status(repo: &Path) -> Result<Status> {
@@ -161,7 +164,9 @@ pub fn status(repo: &Path) -> Result<Status> {
             "--untracked-files=all",
         ],
     )?;
-    Ok(parse_status(&raw))
+    let mut status = parse_status(&raw);
+    status.merging = merge_message(repo)?;
+    Ok(status)
 }
 
 fn xy(field: &str) -> (char, char) {
@@ -254,6 +259,147 @@ fn parse_status(raw: &str) -> Status {
     }
 
     status
+}
+
+// ---------------------------------------------------------------------------
+// Merging and conflicts
+
+/// The pending merge's message if a merge is in progress.
+fn merge_message(repo: &Path) -> Result<Option<String>> {
+    if !output(repo, &["rev-parse", "-q", "--verify", "MERGE_HEAD"])?
+        .status
+        .success()
+    {
+        return Ok(None);
+    }
+    let path = run(repo, &["rev-parse", "--git-path", "MERGE_MSG"])?;
+    let message = std::fs::read_to_string(repo.join(path.trim())).unwrap_or_default();
+    let first = message
+        .lines()
+        .next()
+        .unwrap_or("Merge in progress")
+        .to_string();
+    Ok(Some(first))
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct MergeOutcome {
+    /// True when the merge stopped with conflicts to resolve.
+    pub conflicts: bool,
+}
+
+/// Merges a local or remote-tracking branch into the current branch.
+pub fn merge(repo: &Path, branch: &str) -> Result<MergeOutcome> {
+    let is_branch = ["refs/heads/", "refs/remotes/"].iter().any(|prefix| {
+        output(
+            repo,
+            &["rev-parse", "-q", "--verify", &format!("{prefix}{branch}")],
+        )
+        .is_ok_and(|o| o.status.success())
+    });
+    if !is_branch {
+        return Err(GitError::Failed(format!("No branch named '{branch}'")));
+    }
+    let out = output(repo, &["merge", "--no-edit", branch])?;
+    if out.status.success() {
+        return Ok(MergeOutcome { conflicts: false });
+    }
+    if merge_message(repo)?.is_some() {
+        return Ok(MergeOutcome { conflicts: true });
+    }
+    // Refused to start, e.g. local changes would be overwritten.
+    Err(GitError::Failed(
+        String::from_utf8_lossy(&out.stderr).trim().to_string(),
+    ))
+}
+
+pub fn merge_abort(repo: &Path) -> Result<()> {
+    run(repo, &["merge", "--abort"]).map(drop)
+}
+
+/// Concludes a merge with git's prepared message.
+pub fn merge_commit(repo: &Path) -> Result<()> {
+    run(repo, &["commit", "--no-edit"]).map(drop)
+}
+
+/// `path` inside `repo`, refusing anything that could point outside it.
+fn file_in_repo(repo: &Path, path: &str) -> Result<PathBuf> {
+    use std::path::Component;
+    let relative = Path::new(path);
+    if path.is_empty()
+        || !relative
+            .components()
+            .all(|c| matches!(c, Component::Normal(_)))
+    {
+        return Err(GitError::Failed(format!("Invalid path: {path}")));
+    }
+    Ok(repo.join(relative))
+}
+
+fn read_text(repo: &Path, path: &str) -> Result<String> {
+    let bytes = std::fs::read(file_in_repo(repo, path)?)?;
+    String::from_utf8(bytes).map_err(|_| GitError::Failed(format!("{path} is not a text file")))
+}
+
+pub fn conflict_parts(repo: &Path, path: &str) -> Result<Vec<conflict::Part>> {
+    Ok(conflict::parse(&read_text(repo, path)?))
+}
+
+/// Resolves one conflict block in the working tree file (doesn't stage it).
+pub fn resolve_block(
+    repo: &Path,
+    path: &str,
+    index: usize,
+    choice: conflict::Choice,
+) -> Result<()> {
+    let content = read_text(repo, path)?;
+    let resolved = conflict::resolve(&content, index, choice)
+        .ok_or_else(|| GitError::Failed("That conflict no longer exists".into()))?;
+    std::fs::write(file_in_repo(repo, path)?, resolved)?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum Side {
+    Ours,
+    Theirs,
+}
+
+/// Takes one side's version of the whole file and marks it resolved. If that
+/// side deleted the file, the file is removed.
+pub fn resolve_file(repo: &Path, path: &str, side: Side) -> Result<()> {
+    file_in_repo(repo, path)?;
+    // Stage 2 is ours, stage 3 is theirs.
+    let stage = match side {
+        Side::Ours => "2",
+        Side::Theirs => "3",
+    };
+    let stages = run(repo, &["ls-files", "-u", "--", path])?;
+    let present = stages
+        .lines()
+        .any(|l| l.split_whitespace().nth(2) == Some(stage));
+    if present {
+        let flag = match side {
+            Side::Ours => "--ours",
+            Side::Theirs => "--theirs",
+        };
+        run(repo, &["checkout", flag, "--", path])?;
+        run(repo, &["add", "--", path]).map(drop)
+    } else {
+        run(repo, &["rm", "-q", "--", path]).map(drop)
+    }
+}
+
+/// Stages a conflicted file after checking no conflict markers are left.
+pub fn mark_resolved(repo: &Path, path: &str) -> Result<()> {
+    let file = file_in_repo(repo, path)?;
+    if file.exists() && conflict::has_conflicts(&read_text(repo, path)?) {
+        return Err(GitError::Failed(format!(
+            "{path} still has conflict markers"
+        )));
+    }
+    run(repo, &["add", "-A", "--", path]).map(drop)
 }
 
 // ---------------------------------------------------------------------------
@@ -1061,6 +1207,110 @@ mod tests {
         assert_eq!(merge.parents.len(), 2);
         let shown = show_commit(repo, &merge.hash).unwrap();
         assert!(shown.contains("+from feature"), "{shown}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn conflict_repo(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("gitgud-conflict-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.as_path();
+        run(repo, &["init", "-q", "-b", "main"]).unwrap();
+        for (k, v) in [
+            ("user.name", "T"),
+            ("user.email", "t@x"),
+            ("commit.gpgsign", "false"),
+            ("core.autocrlf", "false"),
+        ] {
+            run(repo, &["config", k, v]).unwrap();
+        }
+        std::fs::write(dir.join("f.txt"), "start\nmiddle\nend\n").unwrap();
+        std::fs::write(dir.join("gone.txt"), "x\n").unwrap();
+        stage(repo, &["f.txt".into(), "gone.txt".into()]).unwrap();
+        commit(repo, "init").unwrap();
+
+        create_branch(repo, "feature").unwrap();
+        std::fs::write(dir.join("f.txt"), "start\nfeature\nend\n").unwrap();
+        std::fs::write(dir.join("gone.txt"), "changed on feature\n").unwrap();
+        stage(repo, &["f.txt".into(), "gone.txt".into()]).unwrap();
+        commit(repo, "feature").unwrap();
+
+        switch_branch(repo, "main").unwrap();
+        std::fs::write(dir.join("f.txt"), "start\nmain\nend\n").unwrap();
+        std::fs::remove_file(dir.join("gone.txt")).unwrap();
+        stage(repo, &["f.txt".into(), "gone.txt".into()]).unwrap();
+        commit(repo, "main").unwrap();
+        dir
+    }
+
+    #[test]
+    fn merge_resolve_and_commit() {
+        let dir = conflict_repo("merge");
+        let repo = dir.as_path();
+        assert!(merge(repo, "nope").is_err());
+
+        assert_eq!(
+            merge(repo, "feature").unwrap(),
+            MergeOutcome { conflicts: true }
+        );
+        let s = status(repo).unwrap();
+        assert_eq!(s.merging.as_deref(), Some("Merge branch 'feature'"));
+        assert_eq!(s.files.iter().filter(|f| f.conflicted).count(), 2);
+
+        let parts = conflict_parts(repo, "f.txt").unwrap();
+        assert!(
+            matches!(&parts[1], conflict::Part::Conflict { ours, theirs, .. }
+            if ours == &vec!["main\n".to_string()] && theirs == &vec!["feature\n".to_string()])
+        );
+        assert!(mark_resolved(repo, "f.txt").is_err(), "markers still there");
+        resolve_block(repo, "f.txt", 0, conflict::Choice::Both).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("f.txt")).unwrap(),
+            "start\nmain\nfeature\nend\n"
+        );
+        mark_resolved(repo, "f.txt").unwrap();
+
+        // Deleted on main, modified on feature: taking ours removes it.
+        resolve_file(repo, "gone.txt", Side::Ours).unwrap();
+        assert!(!dir.join("gone.txt").exists());
+
+        let s = status(repo).unwrap();
+        assert!(s.files.iter().all(|f| !f.conflicted), "{:?}", s.files);
+        merge_commit(repo).unwrap();
+        assert_eq!(status(repo).unwrap().merging, None);
+        let head = &log(repo, 1).unwrap()[0];
+        assert_eq!(head.parents.len(), 2);
+        assert_eq!(head.subject, "Merge branch 'feature'");
+
+        assert!(conflict_parts(repo, "../outside").is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn merge_abort_and_take_theirs() {
+        let dir = conflict_repo("abort");
+        let repo = dir.as_path();
+        merge(repo, "feature").unwrap();
+        merge_abort(repo).unwrap();
+        assert_eq!(status(repo).unwrap().merging, None);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("f.txt")).unwrap(),
+            "start\nmain\nend\n"
+        );
+
+        merge(repo, "feature").unwrap();
+        resolve_file(repo, "f.txt", Side::Theirs).unwrap();
+        resolve_file(repo, "gone.txt", Side::Theirs).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("gone.txt")).unwrap(),
+            "changed on feature\n"
+        );
+        merge_commit(repo).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("f.txt")).unwrap(),
+            "start\nfeature\nend\n"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

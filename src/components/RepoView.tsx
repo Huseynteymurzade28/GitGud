@@ -19,6 +19,7 @@ import HistoryPanel from './HistoryPanel'
 import StashPanel from './StashPanel'
 import StashDialog from './StashDialog'
 import DiffView from './DiffView'
+import ConflictView from './ConflictView'
 import SignInDialog from './SignInDialog'
 import PublishDialog from './PublishDialog'
 
@@ -138,6 +139,20 @@ export default function RepoView({
     }
   }, [repo.path, selection, status])
 
+  // Use the file's current state; it may have become (un)conflicted.
+  const conflictedSelection =
+    selection?.kind === 'file'
+      ? (status?.files.find(
+          (f) => f.path === selection.file.path && f.conflicted,
+        ) ?? null)
+      : null
+
+  // A merge that stops with conflicts needs the Changes tab.
+  const merging = status?.merging ?? null
+  useEffect(() => {
+    if (merging) setTab('changes')
+  }, [merging])
+
   /** Runs a git action, shows its errors, and refreshes afterwards. */
   const act = useCallback(
     async (label: string, action: () => Promise<unknown>) => {
@@ -234,6 +249,7 @@ export default function RepoView({
             <ChangesPanel
               repo={repo}
               files={status?.files ?? []}
+              merging={status?.merging ?? null}
               selection={selection}
               onSelect={setSelection}
               busy={busy !== null}
@@ -259,7 +275,14 @@ export default function RepoView({
         </aside>
 
         <section className="min-w-0 flex-1 overflow-auto">
-          {selection ? (
+          {selection?.kind === 'file' && conflictedSelection ? (
+            <ConflictView
+              repo={repo}
+              file={conflictedSelection}
+              version={status}
+              act={act}
+            />
+          ) : selection ? (
             <DiffView
               diff={diff}
               actions={
