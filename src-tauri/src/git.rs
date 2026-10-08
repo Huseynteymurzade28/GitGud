@@ -397,6 +397,104 @@ fn parse_log(raw: &str) -> Vec<Commit> {
 }
 
 // ---------------------------------------------------------------------------
+// Stash
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Stash {
+    /// N in `stash@{N}`; 0 is the most recent.
+    pub index: u32,
+    pub message: String,
+    /// Branch the stash was made on, if git recorded one.
+    pub branch: Option<String>,
+    /// Unix timestamp in seconds.
+    pub time: i64,
+}
+
+fn stash_ref(index: u32) -> String {
+    format!("stash@{{{index}}}")
+}
+
+pub fn stashes(repo: &Path) -> Result<Vec<Stash>> {
+    let raw = run(repo, &["stash", "list", "--format=%gd%x1f%gs%x1f%ct"])?;
+    Ok(parse_stashes(&raw))
+}
+
+/// Parses `stash@{0}<US>On main: message<US>1700000000` lines. git writes the
+/// subject as "WIP on <branch>: <commit>" or "On <branch>: <message>".
+fn parse_stashes(raw: &str) -> Vec<Stash> {
+    raw.lines()
+        .filter_map(|line| {
+            let mut f = line.split('\x1f');
+            let index = f
+                .next()?
+                .strip_prefix("stash@{")?
+                .strip_suffix('}')?
+                .parse()
+                .ok()?;
+            let subject = f.next()?;
+            let time = f.next()?.parse().ok()?;
+            let (branch, message) = subject
+                .strip_prefix("WIP on ")
+                .or_else(|| subject.strip_prefix("On "))
+                .and_then(|rest| rest.split_once(": "))
+                .map(|(b, m)| (Some(b.to_string()), m.to_string()))
+                .unwrap_or((None, subject.to_string()));
+            Some(Stash {
+                index,
+                message,
+                branch,
+                time,
+            })
+        })
+        .collect()
+}
+
+pub fn stash_push(repo: &Path, message: &str, include_untracked: bool) -> Result<()> {
+    let mut args = vec!["stash", "push"];
+    if include_untracked {
+        args.push("--include-untracked");
+    }
+    if !message.trim().is_empty() {
+        args.extend(["-m", message]);
+    }
+    let out = run(repo, &args)?;
+    // git exits 0 here, so turn it into an error the UI can show.
+    if out.contains("No local changes to save") {
+        return Err(GitError::Failed("No local changes to stash".into()));
+    }
+    Ok(())
+}
+
+pub fn stash_apply(repo: &Path, index: u32) -> Result<()> {
+    run(repo, &["stash", "apply", &stash_ref(index)]).map(drop)
+}
+
+/// Applies and then drops the stash. If applying conflicts, git keeps it.
+pub fn stash_pop(repo: &Path, index: u32) -> Result<()> {
+    run(repo, &["stash", "pop", &stash_ref(index)]).map(drop)
+}
+
+pub fn stash_drop(repo: &Path, index: u32) -> Result<()> {
+    run(repo, &["stash", "drop", &stash_ref(index)]).map(drop)
+}
+
+/// The stash's changes as a patch, including files that were untracked.
+pub fn stash_show(repo: &Path, index: u32) -> Result<String> {
+    run(
+        repo,
+        &[
+            "stash",
+            "show",
+            "-p",
+            "--include-untracked",
+            "--no-color",
+            &stash_ref(index),
+        ],
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Remotes
 
 // `env` carries credentials for hosts the user signed in to (see `github::git_env`).
@@ -773,6 +871,69 @@ mod tests {
         assert!(dest.join("README").exists());
         assert!(!events.is_empty());
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn parses_stashes() {
+        let raw = "stash@{0}\x1fOn main: half-done login\x1f200\n\
+                   stash@{1}\x1fWIP on feature/x: abc123 fix: thing\x1f100\n";
+        let s = parse_stashes(raw);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].index, 0);
+        assert_eq!(s[0].branch.as_deref(), Some("main"));
+        assert_eq!(s[0].message, "half-done login");
+        assert_eq!(s[1].branch.as_deref(), Some("feature/x"));
+        assert_eq!(s[1].message, "abc123 fix: thing");
+        assert_eq!(s[1].time, 100);
+    }
+
+    #[test]
+    fn stash_round_trip() {
+        let dir = std::env::temp_dir().join(format!("gitgud-stash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.as_path();
+        run(repo, &["init", "-q", "-b", "main"]).unwrap();
+        run(repo, &["config", "user.name", "T"]).unwrap();
+        run(repo, &["config", "user.email", "t@x"]).unwrap();
+        run(repo, &["config", "commit.gpgsign", "false"]).unwrap();
+        // Windows runners default to autocrlf=true, which would rewrite "two\n".
+        run(repo, &["config", "core.autocrlf", "false"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+        stage(repo, &["a.txt".into()]).unwrap();
+        commit(repo, "init").unwrap();
+
+        assert!(stash_push(repo, "", true).is_err(), "nothing to stash");
+
+        std::fs::write(dir.join("a.txt"), "two\n").unwrap();
+        std::fs::write(dir.join("new.txt"), "untracked\n").unwrap();
+        stash_push(repo, "my work", true).unwrap();
+        assert!(status(repo).unwrap().files.is_empty());
+
+        let list = stashes(repo).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].message, "my work");
+        assert_eq!(list[0].branch.as_deref(), Some("main"));
+        let patch = stash_show(repo, 0).unwrap();
+        assert!(
+            patch.contains("+two") && patch.contains("+untracked"),
+            "{patch}"
+        );
+
+        stash_apply(repo, 0).unwrap();
+        assert_eq!(stashes(repo).unwrap().len(), 1, "apply keeps the stash");
+        run(repo, &["checkout", "--", "a.txt"]).unwrap();
+        std::fs::remove_file(dir.join("new.txt")).unwrap();
+
+        stash_pop(repo, 0).unwrap();
+        assert!(stashes(repo).unwrap().is_empty(), "pop removes it");
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "two\n");
+
+        stash_push(repo, "", false).unwrap();
+        assert!(dir.join("new.txt").exists(), "untracked stays without -u");
+        stash_drop(repo, 0).unwrap();
+        assert!(stashes(repo).unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Minus, Plus, Undo2 } from 'lucide-react'
+import { confirm } from '@tauri-apps/plugin-dialog'
+import { Archive, Minus, Plus, Undo2 } from 'lucide-react'
 import {
   git,
   isStaged,
@@ -15,6 +16,7 @@ interface Props {
   selection: Selection | null
   onSelect: (s: Selection) => void
   busy: boolean
+  onStash: () => void
   act: (label: string, action: () => Promise<unknown>) => Promise<boolean>
 }
 
@@ -24,6 +26,7 @@ export default function ChangesPanel({
   selection,
   onSelect,
   busy,
+  onStash,
   act,
 }: Props) {
   const [message, setMessage] = useState('')
@@ -37,11 +40,12 @@ export default function ChangesPanel({
       setMessage('')
   }
 
-  function discard(file: FileChange) {
-    if (
-      window.confirm(`Discard changes to ${file.path}? This cannot be undone.`)
+  async function discard(file: FileChange) {
+    const ok = await confirm(
+      `Discard changes to ${file.path}? This cannot be undone.`,
+      { title: 'Discard changes', kind: 'warning' },
     )
-      act('discard', () => git.discard(repo.path, [file.path]))
+    if (ok) act('discard', () => git.discard(repo.path, [file.path]))
   }
 
   const isSelected = (f: FileChange, inStaged: boolean) =>
@@ -95,16 +99,27 @@ export default function ChangesPanel({
           rows={3}
           className="w-full resize-none rounded border border-line bg-bg p-2 outline-none select-text focus:border-accent"
         />
-        <button
-          onClick={commit}
-          disabled={busy || !message.trim() || staged.length === 0}
-          title="Ctrl+Enter"
-          className="mt-2 w-full rounded bg-accent py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-40"
-        >
-          Commit{' '}
-          {staged.length > 0 &&
-            `${staged.length} file${staged.length > 1 ? 's' : ''}`}
-        </button>
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={commit}
+            disabled={busy || !message.trim() || staged.length === 0}
+            title="Ctrl+Enter"
+            className="flex-1 rounded bg-accent py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-40"
+          >
+            Commit{' '}
+            {staged.length > 0 &&
+              `${staged.length} file${staged.length > 1 ? 's' : ''}`}
+          </button>
+          <button
+            onClick={onStash}
+            disabled={busy || files.length === 0}
+            title="Stash all changes"
+            className="flex items-center gap-1.5 rounded border border-line px-3 hover:bg-hover disabled:opacity-40"
+          >
+            <Archive className="size-4" />
+            Stash
+          </button>
+        </div>
       </div>
     </div>
   )

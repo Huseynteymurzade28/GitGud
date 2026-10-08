@@ -10,21 +10,38 @@ import {
   type Commit,
   type FileChange,
   type RepoInfo,
+  type Stash,
   type Status,
 } from '../lib/git'
 import Toolbar from './Toolbar'
 import ChangesPanel from './ChangesPanel'
 import HistoryPanel from './HistoryPanel'
+import StashPanel from './StashPanel'
+import StashDialog from './StashDialog'
 import DiffView from './DiffView'
 import SignInDialog from './SignInDialog'
 import PublishDialog from './PublishDialog'
 
-type Tab = 'changes' | 'history'
+type Tab = 'changes' | 'history' | 'stashes'
 
 /** What the right-hand pane is showing. */
 export type Selection =
   | { kind: 'file'; file: FileChange; staged: boolean }
   | { kind: 'commit'; commit: Commit }
+  | { kind: 'stash'; stash: Stash }
+
+const EMPTY_HINT: Record<Tab, string> = {
+  changes: 'Select a file to see its changes',
+  history: 'Select a commit to see what changed',
+  stashes: 'Select a stash to see what it contains',
+}
+
+function Count({ n }: { n: number }) {
+  if (n === 0) return null
+  return (
+    <span className="ml-1.5 rounded-full bg-hover px-1.5 text-xs">{n}</span>
+  )
+}
 
 interface Props {
   repo: RepoInfo
@@ -46,7 +63,10 @@ export default function RepoView({
   const [branches, setBranches] = useState<Branch[]>([])
   const [commits, setCommits] = useState<Commit[]>([])
   const [originUrl, setOriginUrl] = useState<string | null>(null)
-  const [dialog, setDialog] = useState<'signIn' | 'publish' | null>(null)
+  const [stashes, setStashes] = useState<Stash[]>([])
+  const [dialog, setDialog] = useState<'signIn' | 'publish' | 'stash' | null>(
+    null,
+  )
   const [selection, setSelection] = useState<Selection | null>(null)
   const [diff, setDiff] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -54,16 +74,18 @@ export default function RepoView({
 
   const refresh = useCallback(async () => {
     try {
-      const [s, b, c, o] = await Promise.all([
+      const [s, b, c, o, st] = await Promise.all([
         git.status(repo.path),
         git.branches(repo.path),
         git.log(repo.path),
         git.originUrl(repo.path),
+        git.stashes(repo.path),
       ])
       setStatus(s)
       setBranches(b)
       setCommits(c)
       setOriginUrl(o)
+      setStashes(st)
     } catch (e) {
       setError(errorMessage(e))
     }
@@ -86,12 +108,22 @@ export default function RepoView({
     if (!stillThere) setSelection(null)
   }, [status, selection])
 
+  // Indexes shift after a pop or drop, so match on the timestamp too.
+  useEffect(() => {
+    if (selection?.kind !== 'stash') return
+    const { index, time } = selection.stash
+    if (!stashes.some((s) => s.index === index && s.time === time))
+      setSelection(null)
+  }, [stashes, selection])
+
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       if (!selection) return ''
       if (selection.kind === 'commit')
         return git.showCommit(repo.path, selection.commit.hash)
+      if (selection.kind === 'stash')
+        return git.stashShow(repo.path, selection.stash.index)
       const { file, staged } = selection
       return git.diff(repo.path, file.path, staged, file.untracked)
     }
@@ -156,6 +188,9 @@ export default function RepoView({
           }}
         />
       )}
+      {dialog === 'stash' && (
+        <StashDialog repo={repo} onClose={() => setDialog(null)} act={act} />
+      )}
       {dialog === 'publish' && (
         <PublishDialog
           repo={repo}
@@ -170,7 +205,7 @@ export default function RepoView({
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 shrink-0 flex-col border-r border-line bg-panel">
           <div className="flex border-b border-line">
-            {(['changes', 'history'] as const).map((t) => (
+            {(['changes', 'history', 'stashes'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => {
@@ -184,11 +219,8 @@ export default function RepoView({
                 }`}
               >
                 {t}
-                {t === 'changes' && status && status.files.length > 0 && (
-                  <span className="ml-1.5 rounded-full bg-hover px-1.5 text-xs">
-                    {status.files.length}
-                  </span>
-                )}
+                {t === 'changes' && <Count n={status?.files.length ?? 0} />}
+                {t === 'stashes' && <Count n={stashes.length} />}
               </button>
             ))}
           </div>
@@ -200,13 +232,23 @@ export default function RepoView({
               selection={selection}
               onSelect={setSelection}
               busy={busy !== null}
+              onStash={() => setDialog('stash')}
               act={act}
             />
-          ) : (
+          ) : tab === 'history' ? (
             <HistoryPanel
               commits={commits}
               selection={selection}
               onSelect={setSelection}
+            />
+          ) : (
+            <StashPanel
+              repo={repo}
+              stashes={stashes}
+              selection={selection}
+              onSelect={setSelection}
+              busy={busy !== null}
+              act={act}
             />
           )}
         </aside>
@@ -216,9 +258,7 @@ export default function RepoView({
             <DiffView diff={diff} />
           ) : (
             <div className="flex h-full items-center justify-center text-muted">
-              {tab === 'changes'
-                ? 'Select a file to see its changes'
-                : 'Select a commit to see what changed'}
+              {EMPTY_HINT[tab]}
             </div>
           )}
         </section>

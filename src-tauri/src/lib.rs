@@ -1,7 +1,7 @@
 mod git;
 mod github;
 
-use git::{Branch, Commit, GitError, RepoInfo, Result, Status};
+use git::{Branch, Commit, GitError, RepoInfo, Result, Stash, Status};
 use github::{Account, CreatedRepo, DeviceCode, PollResult, RemoteRepo};
 use std::path::Path;
 use tauri::Emitter;
@@ -73,6 +73,36 @@ fn log(repo: String, limit: u32) -> Result<Vec<Commit>> {
 #[tauri::command(async)]
 fn show_commit(repo: String, hash: String) -> Result<String> {
     git::show_commit(Path::new(&repo), &hash)
+}
+
+#[tauri::command(async)]
+fn stashes(repo: String) -> Result<Vec<Stash>> {
+    git::stashes(Path::new(&repo))
+}
+
+#[tauri::command(async)]
+fn stash_push(repo: String, message: String, include_untracked: bool) -> Result<()> {
+    git::stash_push(Path::new(&repo), &message, include_untracked)
+}
+
+#[tauri::command(async)]
+fn stash_apply(repo: String, index: u32) -> Result<()> {
+    git::stash_apply(Path::new(&repo), index)
+}
+
+#[tauri::command(async)]
+fn stash_pop(repo: String, index: u32) -> Result<()> {
+    git::stash_pop(Path::new(&repo), index)
+}
+
+#[tauri::command(async)]
+fn stash_drop(repo: String, index: u32) -> Result<()> {
+    git::stash_drop(Path::new(&repo), index)
+}
+
+#[tauri::command(async)]
+fn stash_show(repo: String, index: u32) -> Result<String> {
+    git::stash_show(Path::new(&repo), index)
 }
 
 #[tauri::command(async)]
@@ -173,6 +203,12 @@ pub fn run() {
             create_branch,
             log,
             show_commit,
+            stashes,
+            stash_push,
+            stash_apply,
+            stash_pop,
+            stash_drop,
+            stash_show,
             fetch,
             pull,
             push,
