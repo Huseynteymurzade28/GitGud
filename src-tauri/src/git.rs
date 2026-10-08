@@ -7,6 +7,7 @@
 use serde::Serialize;
 
 use crate::graph::{self, GraphRow};
+use crate::patch;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -63,6 +64,26 @@ fn run(repo: &Path, args: &[&str]) -> Result<String> {
 /// Like [`run`], with extra environment variables (used for credentials).
 fn run_with_env(repo: &Path, args: &[&str], env: &[(String, String)]) -> Result<String> {
     let out = command(repo, args).envs(env.iter().cloned()).output()?;
+    finish(out, args)
+}
+
+/// Like [`run`], writing `input` to git's stdin.
+fn run_with_input(repo: &Path, args: &[&str], input: &str) -> Result<String> {
+    use std::io::Write;
+    let mut child = command(repo, args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .expect("stdin is piped")
+        .write_all(input.as_bytes())?;
+    finish(child.wait_with_output()?, args)
+}
+
+fn finish(out: Output, args: &[&str]) -> Result<String> {
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
@@ -282,12 +303,69 @@ pub fn diff(repo: &Path, path: &str, staged: bool, untracked: bool) -> Result<St
         )?;
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
-    let mut args = vec!["diff", "--no-color", "--no-ext-diff"];
+    // Fixed prefixes so the output can be fed back to `git apply`, whatever
+    // the user's diff.noprefix / diff.mnemonicPrefix settings are.
+    let mut args = vec![
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+    ];
     if staged {
         args.push("--cached");
     }
     args.extend(["--", path]);
     run(repo, &args)
+}
+
+/// What to do with the selected lines of a file's diff.
+#[derive(Debug, Clone, Copy, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum LineAction {
+    /// Working tree diff → index.
+    Stage,
+    /// Staged diff → back out of the index.
+    Unstage,
+    /// Working tree diff → removed from the working tree.
+    Discard,
+}
+
+/// Applies only the `selected` lines (indexes into `diff.split('\n')`) of a
+/// diff that was shown to the user. Using the displayed text means that if
+/// the file changed in the meantime, `git apply` refuses instead of touching
+/// lines the user never saw.
+pub fn apply_lines(repo: &Path, diff: &str, selected: &[usize], action: LineAction) -> Result<()> {
+    let direction = match action {
+        LineAction::Stage => patch::Direction::Forward,
+        LineAction::Unstage | LineAction::Discard => patch::Direction::Reverse,
+    };
+    let selected = selected.iter().copied().collect();
+    let patch = patch::partial(diff, &selected, direction).map_err(|e| match e {
+        patch::PatchError::NothingSelected => GitError::Failed("No changed lines selected".into()),
+        patch::PatchError::WholeFileOnly => {
+            GitError::Failed("New, deleted and binary files can only be staged as a whole".into())
+        }
+    })?;
+    let args: &[&str] = match action {
+        LineAction::Stage => &["apply", "--cached", "--recount", "--whitespace=nowarn", "-"],
+        LineAction::Unstage => &[
+            "apply",
+            "--cached",
+            "--reverse",
+            "--recount",
+            "--whitespace=nowarn",
+            "-",
+        ],
+        LineAction::Discard => &[
+            "apply",
+            "--reverse",
+            "--recount",
+            "--whitespace=nowarn",
+            "-",
+        ],
+    };
+    run_with_input(repo, args, &patch).map(drop)
 }
 
 // ---------------------------------------------------------------------------
@@ -1007,6 +1085,74 @@ mod tests {
         assert!(dir.join("new.txt").exists(), "untracked stays without -u");
         stash_drop(repo, 0).unwrap();
         assert!(stashes(repo).unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn stages_unstages_and_discards_single_lines() {
+        let dir = std::env::temp_dir().join(format!("gitgud-lines-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.as_path();
+        run(repo, &["init", "-q", "-b", "main"]).unwrap();
+        run(repo, &["config", "user.name", "T"]).unwrap();
+        run(repo, &["config", "user.email", "t@x"]).unwrap();
+        run(repo, &["config", "commit.gpgsign", "false"]).unwrap();
+        run(repo, &["config", "core.autocrlf", "false"]).unwrap();
+        // Prefixes are forced, so this setting must not break applying.
+        run(repo, &["config", "diff.noprefix", "true"]).unwrap();
+        let original: String = (1..=20).map(|i| format!("line {i}\n")).collect();
+        std::fs::write(dir.join("f.txt"), &original).unwrap();
+        stage(repo, &["f.txt".into()]).unwrap();
+        commit(repo, "init").unwrap();
+
+        // Two separate edits, far enough apart to be two hunks.
+        let edited = original
+            .replace("line 2\n", "line 2 edited\n")
+            .replace("line 18\n", "line 18 edited\n");
+        std::fs::write(dir.join("f.txt"), &edited).unwrap();
+
+        let index_of = |diff: &str, text: &str| {
+            diff.split('\n')
+                .position(|l| l == text)
+                .unwrap_or_else(|| panic!("{text} in {diff}"))
+        };
+
+        // Stage only the first edit.
+        let d = diff(repo, "f.txt", false, false).unwrap();
+        let picked = [index_of(&d, "-line 2"), index_of(&d, "+line 2 edited")];
+        apply_lines(repo, &d, &picked, LineAction::Stage).unwrap();
+        let staged = diff(repo, "f.txt", true, false).unwrap();
+        assert!(staged.contains("+line 2 edited") && !staged.contains("line 18 edited"));
+        let unstaged = diff(repo, "f.txt", false, false).unwrap();
+        assert!(unstaged.contains("+line 18 edited") && !unstaged.contains("line 2 edited"));
+
+        // Unstage just the added line: the index loses "line 2" entirely.
+        let s = diff(repo, "f.txt", true, false).unwrap();
+        apply_lines(
+            repo,
+            &s,
+            &[index_of(&s, "+line 2 edited")],
+            LineAction::Unstage,
+        )
+        .unwrap();
+        let staged = diff(repo, "f.txt", true, false).unwrap();
+        assert!(
+            staged.contains("-line 2") && !staged.contains("+line 2 edited"),
+            "{staged}"
+        );
+        unstage(repo, &["f.txt".into()]).unwrap();
+
+        // Discard only the second edit from the working tree.
+        let d = diff(repo, "f.txt", false, false).unwrap();
+        let picked = [index_of(&d, "-line 18"), index_of(&d, "+line 18 edited")];
+        apply_lines(repo, &d, &picked, LineAction::Discard).unwrap();
+        let now = std::fs::read_to_string(dir.join("f.txt")).unwrap();
+        assert_eq!(now, original.replace("line 2\n", "line 2 edited\n"));
+
+        // A stale diff (file changed since it was shown) is refused.
+        std::fs::write(dir.join("f.txt"), "something else\n").unwrap();
+        assert!(apply_lines(repo, &d, &picked, LineAction::Discard).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
