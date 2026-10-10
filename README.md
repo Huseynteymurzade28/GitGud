@@ -39,7 +39,8 @@ GitGud aims to be as approachable as GitHub Desktop while exposing more of Git's
 - Fetch, pull and push, including publishing new branches; when your branch and its upstream have both moved on, pull asks whether to merge or rebase (or follows your `pull.rebase` setting)
 - Sign in with GitHub (device flow, token kept in the OS keychain) to push over HTTPS
 - Publish a local repository to GitHub in one step
-- Light and dark themes that follow your system
+- Light and dark themes: follow your system or pick one
+- Recent repositories on the start screen and in the Repository menu
 
 ## Screenshots
 
